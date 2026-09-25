@@ -1,0 +1,94 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --brand-dark: #1B4332;
+    --brand-deep: #143325;
+    --brand-green: #2D6A4F;
+    --brand-lime: #52B788;
+    --brand-bright: #74C69D;
+    --btn-green: #2D6A4F;
+    --btn-green-h: #1B4332;
+
+    --bg: #F6F8F5;
+    --surface: #FFFFFF;
+    --surface-2: #F3F5F2;
+    --surface-3: #EAEDE8;
+    --border: #E2E8E0;
+    --border-2: #CBD5C8;
+
+    --ink: #111B15;
+    --ink-2: #334E3C;
+    --ink-3: #6B8574;
+    --ink-ph: #9EB1A5;
+
+    --sb-ink: rgba(255, 255, 255, 0.75);
+    --sb-ink-h: rgba(255, 255, 255, 0.95);
+    --sb-ink-act: #FFFFFF;
+
+    --danger: #DC2626;
+    --danger-soft: #FEF2F2;
+    --danger-bd: #FECACA;
+    --ok: #15803D;
+    --ok-soft: #DCFCE7;
+    --warn-soft: #FEF9C3;
+  }
+
+  [data-theme="dark"] {
+    --bg: #0D1710;
+    --surface: #142018;
+    --surface-2: #1A2B1F;
+    --surface-3: #223528;
+    --border: #2A3E30;
+    --border-2: #3A5442;
+
+    --ink: #EDF7F0;
+    --ink-2: #9EC4A9;
+    --ink-3: #6C8C77;
+    --ink-ph: #496352;
+
+    --danger: #EF4444;
+    --danger-soft: #2D1414;
+    --danger-bd: #551D1D;
+    --ok: #22C55E;
+    --ok-soft: #0E2916;
+    --warn-soft: #2A250E;
+  }
+
+  body {
+    background-color: var(--bg);
+    color: var(--ink);
+    font-family: "Plus Jakarta Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    margin: 0;
+  }
+}
+
+/* Custom Print Rules for Exam Paper */
+@media print {
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+  #sidebar,
+  .topbar,
+  .no-print {
+    display: none !important;
+  }
+  #main,
+  .content-wrap {
+    padding: 0 !important;
+    margin: 0 !important;
+    max-width: 100% !important;
+    width: 100% !important;
+  }
+  .print-only-container {
+    display: block !important;
+    box-shadow: none !important;
+    border: none !important;
+    padding: 0 !important;
+  }
+  .page-break {
+    page-break-before: always;
+  }
+}

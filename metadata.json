@@ -1,0 +1,6 @@
+{
+  "name": "Siapajar.id",
+  "description": "Generator dan peninjau naskah soal ujian otomatis dengan AI, penyusun kop surat sekolah, dan ekspor Word atau PDF siap cetak.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
