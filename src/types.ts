@@ -2,6 +2,8 @@ export type QuestionType = 'PG' | 'PGK' | 'Uraian' | 'BS' | 'Menjodohkan';
 
 export type BloomLevel = 'C1' | 'C2' | 'C3' | 'C4' | 'C5' | 'C6';
 
+export type Difficulty = 'Mudah' | 'Sedang' | 'Sulit' | 'Campuran';
+
 export interface QuestionItem {
   id: string;
   no: number;
@@ -25,7 +27,8 @@ export interface PromptConfig {
   materi: string;
   bukuSibi?: string;
   typeCounts: Record<QuestionType, number>;
-  levels: BloomLevel[];
+  levels?: BloomLevel[];
+  difficulty: Difficulty;
   catatan: string;
 }
 
@@ -45,10 +48,13 @@ export interface KopData {
 }
 
 export interface ExportSettings {
+  layoutColumns: 1 | 2;
   paperSize: 'A4' | 'F4' | 'Letter';
   optionCols: 1 | 2 | 4;
   fontSize: 10 | 11 | 12;
   includeKey: boolean;
   includeLJK: boolean;
   showBloomLevel: boolean;
+  showInstructions: boolean;
+  instructions: string[];
 }

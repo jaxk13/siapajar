@@ -1,4 +1,4 @@
-import { Sparkles, Bot, FileText, Edit3, School, Download, Moon, Sun } from "lucide-react";
+import { Sparkles, Bot, FileText, Edit3, School, Download, Moon, Sun, Lock } from "lucide-react";
 
 interface SidebarProps {
   currentTab: number;
@@ -6,6 +6,7 @@ interface SidebarProps {
   questionCount: number;
   theme: "light" | "dark";
   onToggleTheme: () => void;
+  onLockAccess?: () => void;
 }
 
 const NAV_ITEMS = [
@@ -23,6 +24,7 @@ export default function Sidebar({
   questionCount,
   theme,
   onToggleTheme,
+  onLockAccess,
 }: SidebarProps) {
   return (
     <aside
@@ -114,6 +116,20 @@ export default function Sidebar({
             {theme === "dark" ? "Mode Terang" : "Mode Gelap"}
           </span>
         </button>
+
+        {/* Lock Access Button */}
+        {onLockAccess && (
+          <button
+            type="button"
+            onClick={onLockAccess}
+            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs md:text-sm font-medium text-white/75 hover:bg-red-500/20 hover:text-red-200 transition cursor-pointer text-left"
+          >
+            <div className="w-7 h-7 rounded-md bg-white/5 flex items-center justify-center shrink-0">
+              <Lock className="w-4 h-4" />
+            </div>
+            <span className="flex-1 whitespace-nowrap">Kunci Akses</span>
+          </button>
+        )}
       </nav>
     </aside>
   );

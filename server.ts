@@ -54,11 +54,12 @@ async function startServer() {
 
       const {
         jenjang = "SMP/MTs",
-        kelas = "VIII",
+        kelas = "8",
         mapel = "Umum",
         materi = "",
         bukuSibi = "",
         typeCounts = { PG: 5, PGK: 0, Uraian: 2, BS: 0, Menjodohkan: 0 },
+        difficulty = "Campuran",
         levels = ["C2", "C3", "C4"],
         catatan = "",
       } = req.body;
@@ -75,9 +76,9 @@ async function startServer() {
 TUGAS:
 Buatkan naskah soal ujian yang berkualitas tinggi dengan spesifikasi berikut:
 - Jenjang: ${jenjang}
-- Kelas: ${kelas}
+- Kelas: Kelas ${kelas}
 - Mata Pelajaran: ${mapel}
-- Level Kognitif: ${levels.join(", ") || "C2, C3, C4"} (Taksonomi Bloom)
+- Tingkat Kesulitan: ${difficulty || levels.join(", ") || "Sedang"}
 - Komposisi Soal: ${typeListStr || `${totalSoal} butir soal PG`}
 - Cakupan Materi / Indikator:
 ${materi || "Materi standar mata pelajaran ini yang sesuai dengan jenjang dan kelas tersebut."}
@@ -98,7 +99,7 @@ Format kolom per baris:
 6. d: opsi D (jika tipe Uraian/BS atau SD hanya A-C, beri tanda -)
 7. e: opsi E (jika jenjang SMP/SD atau Uraian, beri tanda -)
 8. kunci: Kunci jawaban (misal: "A" atau "B,C" untuk PGK atau "Benar" untuk BS atau poin kata kunci untuk Uraian)
-9. level: level kognitif misal C1, C2, C3, C4, C5, atau C6
+9. level: tingkat kesulitan atau level soal (misal Mudah, Sedang, Sulit, atau C1-C6)
 10. gambar: "-" jika tidak butuh gambar, atau deskripsi singkat ilustrasi jika perlu stimulus visual, misal: "[Ilustrasi diagram siklus air]"
 
 Pastikan semua baris soal valid dan berisi 10 kolom yang dipisahkan oleh karakter pipa (|).`;

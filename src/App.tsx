@@ -15,13 +15,13 @@ import ImportStep from "./components/ImportStep";
 import ReviewStep from "./components/ReviewStep";
 import KopStep from "./components/KopStep";
 import DownloadStep from "./components/DownloadStep";
-import WelcomeScreen from "./components/WelcomeScreen";
+import AccessGate from "./components/AccessGate";
 
 const savedInitialJenjang = typeof window !== "undefined" ? localStorage.getItem("siapajar_jenjang") : null;
 
 const DEFAULT_PROMPT_CONFIG: PromptConfig = {
-  jenjang: savedInitialJenjang || "SMP/MTs",
-  kelas: "VIII (Delapan)",
+  jenjang: savedInitialJenjang || "SMP / MTs",
+  kelas: "8",
   mapel: "Ilmu Pengetahuan Alam (IPA)",
   materi: "Sistem pernapasan manusia, organ respirasi, pertukaran gas di alveolus, enzim pencernaan, dan gerak refleks.",
   bukuSibi: "",
@@ -32,6 +32,7 @@ const DEFAULT_PROMPT_CONFIG: PromptConfig = {
     BS: 2,
     Menjodohkan: 0,
   },
+  difficulty: "Campuran",
   levels: ["C2", "C3", "C4"],
   catatan: "Gunakan konteks kehidupan sehari-hari dan stimulus analisis fenomena.",
 };
@@ -49,19 +50,34 @@ const DEFAULT_KOP_DATA: KopData = {
   waktu: "90 Menit (07.30 - 09.00 WIB)",
 };
 
+const DEFAULT_INSTRUCTIONS: string[] = [
+  "Tulislah nama, nomor peserta, dan kelas Anda secara lengkap pada lembar jawaban yang tersedia!",
+  "Periksa dan bacalah setiap butir soal dengan saksama sebelum Anda menjawabnya!",
+  "Dahulukan menjawab soal-soal yang Anda anggap mudah!",
+  "Laporkan kepada pengawas ujian jika terdapat tulisan yang kurang jelas, rusak, atau jumlah soal kurang!",
+  "Periksalah kembali seluruh pekerjaan Anda sebelum diserahkan kepada pengawas ujian!",
+];
+
 const DEFAULT_SETTINGS: ExportSettings = {
+  layoutColumns: 2,
   paperSize: "A4",
   optionCols: 2,
   fontSize: 11,
   includeKey: true,
   includeLJK: false,
   showBloomLevel: false,
+  showInstructions: true,
+  instructions: DEFAULT_INSTRUCTIONS,
 };
 
 export default function App() {
-  const [selectedJenjang, setSelectedJenjang] = useState<string | null>(
-    localStorage.getItem("siapajar_jenjang")
-  );
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("siapajar_access_code") === "GURU_HEBAT";
+    } catch {
+      return false;
+    }
+  });
 
   const [currentTab, setCurrentTab] = useState<number>(() => {
     const saved = localStorage.getItem("siapajar_tab");
@@ -72,6 +88,9 @@ export default function App() {
     try {
       const saved = localStorage.getItem("siapajar_prompt_config");
       const base = saved ? JSON.parse(saved) : DEFAULT_PROMPT_CONFIG;
+      if (!base.difficulty) {
+        base.difficulty = "Campuran";
+      }
       const storedJenjang = localStorage.getItem("siapajar_jenjang");
       if (storedJenjang) {
         return { ...base, jenjang: storedJenjang };
@@ -108,7 +127,16 @@ export default function App() {
   const [exportSettings, setExportSettings] = useState<ExportSettings>(() => {
     try {
       const saved = localStorage.getItem("siapajar_export_settings");
-      return saved ? JSON.parse(saved) : DEFAULT_SETTINGS;
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return {
+          ...DEFAULT_SETTINGS,
+          ...parsed,
+          layoutColumns: parsed.layoutColumns || 2,
+          instructions: Array.isArray(parsed.instructions) && parsed.instructions.length > 0 ? parsed.instructions : DEFAULT_INSTRUCTIONS,
+        };
+      }
+      return DEFAULT_SETTINGS;
     } catch {
       return DEFAULT_SETTINGS;
     }
@@ -121,17 +149,6 @@ export default function App() {
 
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (selectedJenjang) {
-      localStorage.setItem("siapajar_jenjang", selectedJenjang);
-      setPromptConfig((prev) =>
-        prev.jenjang === selectedJenjang ? prev : { ...prev, jenjang: selectedJenjang }
-      );
-    } else {
-      localStorage.removeItem("siapajar_jenjang");
-    }
-  }, [selectedJenjang]);
-
   // Sync to local storage
   useEffect(() => {
     localStorage.setItem("siapajar_tab", currentTab.toString());
@@ -139,6 +156,9 @@ export default function App() {
 
   useEffect(() => {
     localStorage.setItem("siapajar_prompt_config", JSON.stringify(promptConfig));
+    if (promptConfig.jenjang) {
+      localStorage.setItem("siapajar_jenjang", promptConfig.jenjang);
+    }
   }, [promptConfig]);
 
   useEffect(() => {
@@ -204,8 +224,18 @@ export default function App() {
     }
   };
 
-  if (!selectedJenjang) {
-    return <WelcomeScreen onSelect={setSelectedJenjang} />;
+  const handleLockAccess = () => {
+    try {
+      localStorage.removeItem("siapajar_access_code");
+    } catch {
+      // ignore
+    }
+    setIsAuthenticated(false);
+    showToast("Akses berhasil dikunci. Masukkan kode untuk membuka kembali.");
+  };
+
+  if (!isAuthenticated) {
+    return <AccessGate onSuccess={() => setIsAuthenticated(true)} />;
   }
 
   return (
@@ -217,11 +247,16 @@ export default function App() {
         questionCount={questions.length}
         theme={theme}
         onToggleTheme={handleToggleTheme}
+        onLockAccess={handleLockAccess}
       />
 
       {/* Main Content Area */}
       <div id="main" className="flex-1 flex flex-col min-w-0">
-        <Topbar currentTab={currentTab} onResetAll={handleResetAll} />
+        <Topbar
+          currentTab={currentTab}
+          onResetAll={handleResetAll}
+          onLockAccess={handleLockAccess}
+        />
 
         <div className="content-wrap flex-1 max-w-5xl w-full mx-auto p-4 sm:p-8">
           <AnimatePresence mode="wait">
@@ -238,7 +273,6 @@ export default function App() {
                   onChange={setPromptConfig}
                   onNext={() => setCurrentTab(1)}
                   onShowToast={showToast}
-                  onResetJenjang={() => setSelectedJenjang(null)}
                 />
               )}
 

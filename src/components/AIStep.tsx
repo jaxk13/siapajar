@@ -46,12 +46,6 @@ const AI_LINKS = [
     badge: "Anthropic",
     bg: "hover:border-[#D97706] hover:bg-[#D97706]/5",
   },
-  {
-    name: "DeepSeek",
-    url: "https://chat.deepseek.com",
-    badge: "DeepSeek",
-    bg: "hover:border-[#4F46E5] hover:bg-[#4F46E5]/5",
-  },
 ];
 
 export default function AIStep({
@@ -83,16 +77,16 @@ export default function AIStep({
   }, [config.typeCounts, totalQuestions]);
 
   const generatedPrompt = useMemo(() => {
-    const levelsStr = config.levels.length > 0 ? config.levels.join(", ") : "C2, C3, C4";
+    const diffStr = config.difficulty || "Campuran";
 
     return `Anda adalah pakar penyusun naskah soal asesmen dan kurikulum merdeka Indonesia yang teliti dan berstandar HOTS (Higher Order Thinking Skills).
 
 TUGAS:
 Buatkan naskah soal ujian berkualitas tinggi sesuai spesifikasi:
 - Jenjang: ${config.jenjang}
-- Kelas: ${config.kelas || "Standar"}
+- Kelas: Kelas ${config.kelas || "8"}
 - Mata Pelajaran: ${config.mapel || "Mata Pelajaran Umum"}
-- Level Kognitif (Taksonomi Bloom): ${levelsStr}
+- Tingkat Kesulitan: ${diffStr}
 - Komposisi Butir Soal: ${typeSummaryStr}
 - Cakupan Materi / Indikator Capaian:
 ${config.materi.trim() || "Materi standar sesuai jenjang dan mata pelajaran di atas."}
@@ -113,7 +107,7 @@ Format kolom per baris:
 6. d: teks opsi D (jika jenjang SD hanya A-C atau Uraian, isi tanda -)
 7. e: teks opsi E (jika jenjang SMP/SD atau Uraian, isi tanda -)
 8. kunci: Kunci jawaban ("A" / "B,C" / "Benar" / kata kunci uraian)
-9. level: level kognitif (misal C2, C3, C4)
+9. level: tingkat kesulitan atau level kognitif (misal ${diffStr === "Campuran" ? "Mudah, Sedang, atau Sulit" : diffStr})
 10. gambar: "-" jika tanpa gambar, atau petunjuk deskripsi gambar stimulus misal "[Diagram siklus karbon]"`;
   }, [config, typeSummaryStr]);
 
@@ -146,6 +140,7 @@ Format kolom per baris:
           materi: config.materi,
           bukuSibi: config.bukuSibi,
           typeCounts: config.typeCounts,
+          difficulty: config.difficulty || "Campuran",
           levels: config.levels,
           catatan: config.catatan,
         }),
@@ -205,7 +200,7 @@ Format kolom per baris:
             B. Jalankan AI
           </h2>
           <p className="text-sm text-[var(--ink-3)] mt-1">
-            Gunakan perintah siap pakai dengan AI web gratis (ChatGPT, Gemini, Claude, DeepSeek) atau jalankan langsung via API.
+            Gunakan perintah siap pakai dengan AI web gratis (ChatGPT, Gemini, Claude) atau jalankan langsung via API.
           </p>
         </div>
 
@@ -236,7 +231,7 @@ Format kolom per baris:
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
           <div>
             <span className="text-[var(--ink-3)] block">Jenjang & Kelas:</span>
-            <span className="font-semibold text-[var(--ink)]">{config.jenjang} - {config.kelas || "Standar"}</span>
+            <span className="font-semibold text-[var(--ink)]">{config.jenjang} - Kelas {config.kelas || "8"}</span>
           </div>
           <div>
             <span className="text-[var(--ink-3)] block">Mata Pelajaran:</span>
@@ -247,9 +242,9 @@ Format kolom per baris:
             <span className="font-semibold text-[var(--ink)]">{typeSummaryStr}</span>
           </div>
           <div>
-            <span className="text-[var(--ink-3)] block">Level Kognitif:</span>
+            <span className="text-[var(--ink-3)] block">Tingkat Kesulitan:</span>
             <span className="font-semibold text-[var(--ink)]">
-              {config.levels.length > 0 ? config.levels.join(", ") : "C2, C3, C4"}
+              {config.difficulty || "Campuran"}
             </span>
           </div>
         </div>
@@ -303,7 +298,7 @@ Format kolom per baris:
           </p>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {AI_LINKS.map((ai) => (
             <a
               key={ai.name}

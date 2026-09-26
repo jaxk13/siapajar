@@ -91,4 +91,16 @@
   .page-break {
     page-break-before: always;
   }
+  .exam-col-2 {
+    column-count: 2 !important;
+    column-gap: 22px !important;
+    column-rule: 1px solid #000000 !important;
+  }
+  .exam-col-1 {
+    column-count: 1 !important;
+  }
+  .avoid-break {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
 }

@@ -1,8 +1,9 @@
-import { Trash2 } from "lucide-react";
+import { Trash2, Lock, ShieldCheck } from "lucide-react";
 
 interface TopbarProps {
   currentTab: number;
   onResetAll: () => void;
+  onLockAccess?: () => void;
 }
 
 const TAB_TITLES: { title: string; sub: string }[] = [
@@ -14,7 +15,7 @@ const TAB_TITLES: { title: string; sub: string }[] = [
   { title: "F. Unduh & Cetak Naskah", sub: "Ekspor dokumen Word (.doc), cetak langsung, atau simpan PDF" },
 ];
 
-export default function Topbar({ currentTab, onResetAll }: TopbarProps) {
+export default function Topbar({ currentTab, onResetAll, onLockAccess }: TopbarProps) {
   const current = TAB_TITLES[currentTab] || TAB_TITLES[0];
 
   return (
@@ -28,12 +29,30 @@ export default function Topbar({ currentTab, onResetAll }: TopbarProps) {
         </p>
       </div>
 
-      <div className="flex items-center gap-3 shrink-0">
+      <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+        <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#52B788]/10 text-[#2D6A4F] text-xs font-semibold border border-[#52B788]/20">
+          <ShieldCheck className="w-3.5 h-3.5 text-[#52B788]" />
+          <span>Akses Aktif</span>
+        </div>
+
+        {onLockAccess && (
+          <button
+            type="button"
+            onClick={onLockAccess}
+            id="btn_lock_access"
+            title="Kunci kembali akses website"
+            className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-full text-xs font-semibold text-[var(--ink-2)] hover:bg-[var(--surface-2)] border border-[var(--border)] transition cursor-pointer"
+          >
+            <Lock className="w-3.5 h-3.5 text-[var(--ink-3)]" />
+            <span className="hidden sm:inline">Kunci Akses</span>
+          </button>
+        )}
+
         <button
           type="button"
           onClick={onResetAll}
           id="btn_reset_all_data"
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold text-[var(--danger)] hover:bg-[var(--danger-soft)] border border-[var(--danger-bd)] transition cursor-pointer"
+          className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-full text-xs font-semibold text-[var(--danger)] hover:bg-[var(--danger-soft)] border border-[var(--danger-bd)] transition cursor-pointer"
         >
           <Trash2 className="w-3.5 h-3.5" />
           <span className="hidden sm:inline">Reset Data</span>

@@ -85,7 +85,7 @@ export function generateWordDocument(
         </p>
         <ol style="margin-top:4px; padding-left:22px; font-size:${settings.fontSize}pt;">
           ${items.map(q => `
-            <li style="margin-bottom:12px; line-height:1.45;">
+            <li style="margin-bottom:12px; line-height:1.45; page-break-inside:avoid; break-inside:avoid;">
               <div>
                 ${escapeHtml(q.question)}
                 ${settings.showBloomLevel ? `<span style="font-size:8.5pt; color:#666; font-family:monospace; margin-left:6px;">[${q.level}]</span>` : ""}
@@ -260,8 +260,28 @@ export function generateWordDocument(
         </tr>
       </table>
 
+      <!-- PETUNJUK UMUM (JIKA DIAKTIFKAN) -->
+      ${
+        settings.showInstructions !== false && settings.instructions && settings.instructions.length > 0
+          ? `
+        <div style="margin-bottom:14px; border:1pt solid #777; padding:8px 12px; background:#f9f9f9; font-size:${Math.max(settings.fontSize - 1, 9)}pt;">
+          <div style="font-weight:bold; text-transform:uppercase; margin-bottom:4px; letter-spacing:0.04em;">PETUNJUK UMUM:</div>
+          <ol style="margin:2px 0 0 18px; padding:0; line-height:1.4;">
+            ${settings.instructions.map(inst => `<li style="margin-bottom:2px;">${escapeHtml(inst)}</li>`).join("")}
+          </ol>
+        </div>
+      `
+          : ""
+      }
+
       <!-- KONTEN SOAL -->
-      ${questionHtml}
+      <div style="${
+        settings.layoutColumns === 2
+          ? "column-count: 2; -webkit-column-count: 2; mso-column-count: 2; column-gap: 20pt; mso-column-gap: 20pt;"
+          : ""
+      }">
+        ${questionHtml}
+      </div>
 
       <!-- KUNCI JAWABAN (JIKA DIPILIH) -->
       ${keyHtml}

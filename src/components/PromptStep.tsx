@@ -1,30 +1,19 @@
 import { useState, useMemo } from "react";
 import { Copy, Check, ArrowRight, Sparkles, BookOpen, Layers } from "lucide-react";
-import { PromptConfig, BloomLevel, QuestionType } from "../types";
+import { PromptConfig, Difficulty, QuestionType } from "../types";
 
 interface PromptStepProps {
   config: PromptConfig;
   onChange: (cfg: PromptConfig) => void;
   onNext: () => void;
   onShowToast: (msg: string) => void;
-  onResetJenjang: () => void;
 }
 
-const BLOOM_LEVELS: { id: BloomLevel; label: string; desc: string }[] = [
-  { id: "C1", label: "C1", desc: "Mengingat" },
-  { id: "C2", label: "C2", desc: "Memahami" },
-  { id: "C3", label: "C3", desc: "Menerapkan" },
-  { id: "C4", label: "C4", desc: "Menganalisis" },
-  { id: "C5", label: "C5", desc: "Mengevaluasi" },
-  { id: "C6", label: "C6", desc: "Menciptakan" },
-];
-
-const QUESTION_TYPES: { id: QuestionType; label: string; desc: string }[] = [
-  { id: "PG", label: "Pilihan Ganda (PG)", desc: "1 pilihan jawaban benar tunggal (A-D/E)" },
-  { id: "PGK", label: "Pilihan Ganda Kompleks (PGK)", desc: "Pernyataan bercentang / jawaban benar jamak" },
-  { id: "Uraian", label: "Uraian / Esai", desc: "Pertanyaan terbuka menuntut penalaran tertulis" },
-  { id: "BS", label: "Benar / Salah (B/S)", desc: "Pernyataan konseptual Benar atau Salah" },
-  { id: "Menjodohkan", label: "Menjodohkan", desc: "Memasangkan stimulus premis dengan respon" },
+const DIFFICULTY_OPTIONS: { id: Difficulty; label: string; desc: string }[] = [
+  { id: "Mudah", label: "Mudah", desc: "Konseptual dasar" },
+  { id: "Sedang", label: "Sedang", desc: "Penerapan standar" },
+  { id: "Sulit", label: "Sulit", desc: "HOTS & Penalaran" },
+  { id: "Campuran", label: "Campuran", desc: "Kombinasi bertingkat" },
 ];
 
 export default function PromptStep({
@@ -32,33 +21,84 @@ export default function PromptStep({
   onChange,
   onNext,
   onShowToast,
-  onResetJenjang,
 }: PromptStepProps) {
   const [copied, setCopied] = useState(false);
-
-  const toggleLevel = (lvl: BloomLevel) => {
-    const exists = config.levels.includes(lvl);
-    const newLevels = exists
-      ? config.levels.filter(l => l !== lvl)
-      : [...config.levels, lvl].sort();
-    onChange({ ...config, levels: newLevels });
-  };
-
-  const updateCount = (type: QuestionType, delta: number) => {
-    const current = config.typeCounts[type] || 0;
-    const nextVal = Math.max(0, current + delta);
-    onChange({
-      ...config,
-      typeCounts: {
-        ...config.typeCounts,
-        [type]: nextVal,
-      },
-    });
-  };
 
   const totalQuestions = useMemo(() => {
     return Object.values(config.typeCounts).reduce((a, b) => a + (b || 0), 0);
   }, [config.typeCounts]);
+
+  const activeTypes = useMemo(() => {
+    return (Object.entries(config.typeCounts) as [QuestionType, number][]).filter(
+      ([, c]) => c > 0
+    );
+  }, [config.typeCounts]);
+
+  const currentTypeMode = useMemo(() => {
+    if (activeTypes.length === 1) return activeTypes[0][0];
+    if (activeTypes.length === 0) return "PG";
+    return "Campuran";
+  }, [activeTypes]);
+
+  const distributeForCampuran = (total: number): Record<QuestionType, number> => {
+    const t = Math.max(1, total);
+    if (t === 5) {
+      return { PG: 3, PGK: 1, Uraian: 1, BS: 0, Menjodohkan: 0 };
+    }
+    const pg = Math.max(1, Math.round(t * 0.5));
+    const pgk = Math.max(0, Math.round(t * 0.2));
+    const uraian = Math.max(1, Math.round(t * 0.15));
+    const bs = Math.max(0, t - pg - pgk - uraian);
+    return {
+      PG: pg,
+      PGK: pgk,
+      Uraian: uraian,
+      BS: bs,
+      Menjodohkan: 0,
+    };
+  };
+
+  const handleTypeModeChange = (mode: string) => {
+    const currentTotal = totalQuestions > 0 ? totalQuestions : 5;
+    if (mode === "Campuran") {
+      onChange({
+        ...config,
+        typeCounts: distributeForCampuran(currentTotal),
+      });
+    } else {
+      const singleType = mode as QuestionType;
+      onChange({
+        ...config,
+        typeCounts: {
+          PG: singleType === "PG" ? currentTotal : 0,
+          PGK: singleType === "PGK" ? currentTotal : 0,
+          Uraian: singleType === "Uraian" ? currentTotal : 0,
+          BS: singleType === "BS" ? currentTotal : 0,
+          Menjodohkan: singleType === "Menjodohkan" ? currentTotal : 0,
+        },
+      });
+    }
+  };
+
+  const handleTotalQuestionsChange = (newTotal: number) => {
+    if (currentTypeMode === "Campuran") {
+      onChange({
+        ...config,
+        typeCounts: distributeForCampuran(newTotal),
+      });
+    } else {
+      onChange({
+        ...config,
+        typeCounts: {
+          PG: currentTypeMode === "PG" ? newTotal : 0,
+          PGK: currentTypeMode === "PGK" ? newTotal : 0,
+          Uraian: currentTypeMode === "Uraian" ? newTotal : 0,
+          BS: currentTypeMode === "BS" ? newTotal : 0,
+          Menjodohkan: currentTypeMode === "Menjodohkan" ? newTotal : 0,
+        },
+      });
+    }
+  };
 
   const generatedPrompt = useMemo(() => {
     const typeItems = Object.entries(config.typeCounts)
@@ -66,16 +106,16 @@ export default function PromptStep({
       .map(([t, count]) => `${count} butir soal ${t}`)
       .join(", ");
 
-    const levelsStr = config.levels.length > 0 ? config.levels.join(", ") : "C2, C3, C4";
+    const diffStr = config.difficulty || "Campuran";
 
     return `Anda adalah pakar penyusun naskah soal asesmen dan kurikulum merdeka Indonesia yang teliti dan berstandar HOTS (Higher Order Thinking Skills).
 
 TUGAS:
 Buatkan naskah soal ujian berkualitas tinggi sesuai spesifikasi:
 - Jenjang: ${config.jenjang}
-- Kelas: ${config.kelas || "Standar"}
+- Kelas: Kelas ${config.kelas || "8"}
 - Mata Pelajaran: ${config.mapel || "Mata Pelajaran Umum"}
-- Level Kognitif (Taksonomi Bloom): ${levelsStr}
+- Tingkat Kesulitan: ${diffStr}
 - Komposisi Butir Soal: ${typeItems || `${totalQuestions || 5} butir soal PG`}
 - Cakupan Materi / Indikator Capaian:
 ${config.materi.trim() || "Materi standar sesuai jenjang dan mata pelajaran di atas."}
@@ -96,7 +136,7 @@ Format kolom per baris:
 6. d: teks opsi D (jika jenjang SD hanya A-C atau Uraian, isi tanda -)
 7. e: teks opsi E (jika jenjang SMP/SD atau Uraian, isi tanda -)
 8. kunci: Kunci jawaban ("A" / "B,C" / "Benar" / kata kunci uraian)
-9. level: level kognitif (misal C2, C3, C4)
+9. level: tingkat kesulitan atau level kognitif (misal ${diffStr === "Campuran" ? "Mudah, Sedang, atau Sulit" : diffStr})
 10. gambar: "-" jika tanpa gambar, atau petunjuk deskripsi gambar stimulus misal "[Diagram siklus karbon]"`;
   }, [config, totalQuestions]);
 
@@ -154,34 +194,21 @@ Format kolom per baris:
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
-            <div className="flex items-center justify-between mb-1">
-              <label className="block text-xs font-semibold text-[var(--ink-2)]">
-                Jenjang Pendidikan
-              </label>
-              <button
-                type="button"
-                id="btn_ganti_jenjang"
-                onClick={onResetJenjang}
-                className="text-xs font-semibold px-2.5 py-0.5 rounded border border-[var(--border)] bg-[var(--surface-2)] text-[var(--ink-2)] hover:border-[#FF6600] hover:text-[#FF6600] transition cursor-pointer"
-              >
-                Ganti Jenjang
-              </button>
-            </div>
+            <label className="block text-xs font-semibold text-[var(--ink-2)] mb-1">
+              Jenjang Pendidikan
+            </label>
             <select
               id="select_jenjang"
               value={config.jenjang}
-              disabled
-              className="w-full bg-[var(--surface-2)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--ink)] opacity-75 cursor-not-allowed focus:outline-none"
+              onChange={(e) => onChange({ ...config, jenjang: e.target.value })}
+              className="w-full bg-[var(--surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--ink)] focus:outline-none focus:border-[var(--brand-lime)] focus:ring-2 focus:ring-[var(--brand-lime)]/20 cursor-pointer"
             >
               <option value="SD / MI">SD / MI</option>
-              <option value="SD/MI">SD / MI (Sederajat)</option>
               <option value="SMP / MTs">SMP / MTs</option>
-              <option value="SMP/MTs">SMP / MTs (Sederajat)</option>
               <option value="SMA / MA / SMK">SMA / MA / SMK</option>
-              <option value="SMA/MA">SMA / MA (Sederajat)</option>
-              <option value="SMK/MAK">SMK / MAK (Kejuruan)</option>
+              <option value="SMK / MAK">SMK / MAK (Kejuruan)</option>
               {config.jenjang &&
-                !["SD / MI", "SD/MI", "SMP / MTs", "SMP/MTs", "SMA / MA / SMK", "SMA/MA", "SMK/MAK"].includes(
+                !["SD / MI", "SMP / MTs", "SMA / MA / SMK", "SMK / MAK"].includes(
                   config.jenjang
                 ) && <option value={config.jenjang}>{config.jenjang}</option>}
             </select>
@@ -189,16 +216,24 @@ Format kolom per baris:
 
           <div>
             <label className="block text-xs font-semibold text-[var(--ink-2)] mb-1">
-              Kelas / Rombel
+              Kelas
             </label>
-            <input
-              type="text"
-              id="input_kelas"
-              placeholder="Contoh: VIII (Delapan) / X MIPA 1"
+            <select
+              id="select_kelas"
               value={config.kelas}
               onChange={(e) => onChange({ ...config, kelas: e.target.value })}
-              className="w-full bg-[var(--surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[var(--brand-lime)] focus:ring-2 focus:ring-[var(--brand-lime)]/20"
-            />
+              className="w-full bg-[var(--surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--ink)] focus:outline-none focus:border-[var(--brand-lime)] focus:ring-2 focus:ring-[var(--brand-lime)]/20 cursor-pointer"
+            >
+              {Array.from({ length: 12 }, (_, i) => String(i + 1)).map((num) => (
+                <option key={num} value={num}>
+                  Kelas {num}
+                </option>
+              ))}
+              {config.kelas &&
+                !Array.from({ length: 12 }, (_, i) => String(i + 1)).includes(config.kelas) && (
+                  <option value={config.kelas}>Kelas {config.kelas}</option>
+                )}
+            </select>
           </div>
         </div>
 
@@ -219,25 +254,32 @@ Format kolom per baris:
 
           <div>
             <label className="block text-xs font-semibold text-[var(--ink-2)] mb-1">
-              Level Kognitif (Taksonomi Bloom)
+              Tingkat Kesulitan
             </label>
-            <div className="flex flex-wrap gap-1.5 pt-1">
-              {BLOOM_LEVELS.map((bl) => {
-                const active = config.levels.includes(bl.id);
+            <div className="flex flex-wrap gap-2 pt-1">
+              {DIFFICULTY_OPTIONS.map((diff) => {
+                const active = (config.difficulty || "Campuran") === diff.id;
                 return (
                   <button
-                    key={bl.id}
+                    key={diff.id}
                     type="button"
-                    onClick={() => toggleLevel(bl.id)}
-                    className={`px-2.5 py-1 rounded-full text-xs font-medium border transition cursor-pointer flex items-center gap-1.5 ${
+                    id={`btn_diff_${diff.id.toLowerCase()}`}
+                    onClick={() => onChange({ ...config, difficulty: diff.id })}
+                    className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition cursor-pointer flex items-center gap-1.5 ${
                       active
-                        ? "bg-[#EBF5F0] border-[var(--btn-green)] text-[var(--btn-green)] font-semibold"
+                        ? "bg-[#EBF5F0] border-[var(--btn-green)] text-[var(--btn-green)] shadow-xs"
                         : "bg-[var(--surface)] border-[var(--border)] text-[var(--ink-2)] hover:border-[var(--brand-lime)]"
                     }`}
                   >
-                    <span className={`w-2 h-2 rounded-full ${active ? "bg-[var(--btn-green)]" : "bg-neutral-300"}`} />
-                    <span>{bl.label}</span>
-                    <span className="text-[10px] opacity-75 hidden sm:inline">({bl.desc})</span>
+                    <span
+                      className={`w-2 h-2 rounded-full ${
+                        active ? "bg-[var(--btn-green)]" : "bg-neutral-300"
+                      }`}
+                    />
+                    <span>{diff.label}</span>
+                    <span className="text-[10px] opacity-75 hidden sm:inline">
+                      ({diff.desc})
+                    </span>
                   </button>
                 );
               })}
@@ -286,50 +328,47 @@ Format kolom per baris:
           </span>
         </div>
 
-        <div className="divide-y divide-[var(--border)]">
-          {QUESTION_TYPES.map((qt) => {
-            const count = config.typeCounts[qt.id] || 0;
-            return (
-              <div key={qt.id} className="py-3 flex items-center justify-between gap-4">
-                <div className="min-w-0 flex-1">
-                  <div className="text-sm font-semibold text-[var(--ink)]">{qt.label}</div>
-                  <div className="text-xs text-[var(--ink-3)]">{qt.desc}</div>
-                </div>
+        {/* Dropdown Tipe dan Jumlah Butir Soal Utama */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
+          <div>
+            <label className="block text-xs font-semibold text-[var(--ink-2)] mb-1">
+              Tipe Soal
+            </label>
+            <select
+              id="select_tipe_soal"
+              value={currentTypeMode}
+              onChange={(e) => handleTypeModeChange(e.target.value)}
+              className="w-full bg-[var(--surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--ink)] focus:outline-none focus:border-[var(--brand-lime)] focus:ring-2 focus:ring-[var(--brand-lime)]/20 cursor-pointer"
+            >
+              <option value="PG">Pilihan Ganda (PG)</option>
+              <option value="PGK">Pilihan Ganda Kompleks (PGK)</option>
+              <option value="Uraian">Uraian / Esai</option>
+              <option value="BS">Benar / Salah (B/S)</option>
+              <option value="Menjodohkan">Menjodohkan</option>
+              <option value="Campuran">Campuran (Kombinasi Beragam Tipe)</option>
+            </select>
+          </div>
 
-                <div className="flex items-center border border-[var(--border)] rounded-lg overflow-hidden bg-[var(--surface-2)]">
-                  <button
-                    type="button"
-                    onClick={() => updateCount(qt.id, -1)}
-                    disabled={count <= 0}
-                    className="w-8 h-8 flex items-center justify-center text-sm font-bold text-[var(--ink-2)] hover:bg-[var(--surface-3)] disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed"
-                  >
-                    -
-                  </button>
-                  <input
-                    type="number"
-                    min="0"
-                    max="100"
-                    value={count}
-                    onChange={(e) => {
-                      const val = Math.max(0, parseInt(e.target.value) || 0);
-                      onChange({
-                        ...config,
-                        typeCounts: { ...config.typeCounts, [qt.id]: val },
-                      });
-                    }}
-                    className="w-12 text-center text-sm font-semibold bg-transparent border-x border-[var(--border)] py-1 focus:outline-none"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => updateCount(qt.id, 1)}
-                    className="w-8 h-8 flex items-center justify-center text-sm font-bold text-[var(--ink-2)] hover:bg-[var(--surface-3)] cursor-pointer"
-                  >
-                    +
-                  </button>
-                </div>
-              </div>
-            );
-          })}
+          <div>
+            <label className="block text-xs font-semibold text-[var(--ink-2)] mb-1">
+              Jumlah Butir Soal
+            </label>
+            <select
+              id="select_jumlah_soal"
+              value={totalQuestions}
+              onChange={(e) => handleTotalQuestionsChange(parseInt(e.target.value, 10))}
+              className="w-full bg-[var(--surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--ink)] focus:outline-none focus:border-[var(--brand-lime)] focus:ring-2 focus:ring-[var(--brand-lime)]/20 cursor-pointer"
+            >
+              {[5, 10, 15, 20, 25, 30, 35, 40, 45, 50].map((num) => (
+                <option key={num} value={num}>
+                  {num} Butir Soal
+                </option>
+              ))}
+              {!([5, 10, 15, 20, 25, 30, 35, 40, 45, 50].includes(totalQuestions)) && totalQuestions > 0 && (
+                <option value={totalQuestions}>{totalQuestions} Butir Soal</option>
+              )}
+            </select>
+          </div>
         </div>
       </div>
 
