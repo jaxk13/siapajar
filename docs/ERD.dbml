@@ -1,0 +1,165 @@
+// ============================================================================
+// SIAPAJAR.id — Entity Relationship Diagram (MVP)
+// Database: PostgreSQL 17 (local: docker-compose.dev.yml)
+//
+// How to view: copy this whole file into https://dbdiagram.io/d
+// Explanation of each table: docs/DATABASE.md
+//
+// Scope rules (docs/DECISIONS.md ADR-002, ADR-006):
+//   - Question drafts are NOT stored here. Drafts live in the teacher's browser.
+//   - No user accounts. Access = access code + temporary session (ADR-003).
+//
+// Items marked "BELUM DIPUTUSKAN" depend on open product decisions (PRD §21).
+// ============================================================================
+
+Project siapajar {
+  database_type: 'PostgreSQL'
+  Note: 'SIAPAJAR.id MVP — access codes, sessions, plans, orders, usage logs, system settings.'
+}
+
+// ----------------------------------------------------------------------------
+// Enums
+// ----------------------------------------------------------------------------
+
+Enum access_code_status {
+  unused   [note: 'Created by admin, not yet used']
+  active   [note: 'Activated; valid until expires_at']
+  expired  [note: 'Past expires_at']
+  disabled [note: 'Manually disabled by admin (e.g. shared code, refund)']
+}
+
+Enum order_status {
+  pending   [note: 'Buyer contacted admin, payment not confirmed']
+  paid      [note: 'Payment confirmed by admin']
+  fulfilled [note: 'Access code created and sent to buyer']
+  cancelled [note: 'Cancelled / refunded']
+}
+
+Enum payment_method {
+  bank_transfer
+  qris
+}
+
+Enum usage_event_type {
+  access_activated
+  session_created
+  prompt_generated
+  output_parsed
+  export_word
+  export_print
+}
+
+// ----------------------------------------------------------------------------
+// Tables
+// ----------------------------------------------------------------------------
+
+Table plans {
+  id              uuid        [pk, default: `gen_random_uuid()`]
+  slug            varchar(50) [not null, unique, note: 'Stable identifier, e.g. instan, pro']
+  name            varchar(100) [not null, note: 'Display name on the pricing section']
+  description     text
+  price_idr       integer     [not null, note: 'Price in Rupiah (no decimals). BELUM DIPUTUSKAN']
+  duration_days   integer     [not null, note: 'Access period after activation. BELUM DIPUTUSKAN']
+  max_devices     integer     [null, note: 'Max concurrent sessions per code; NULL = unlimited. MVP: 2. Oldest session is signed out when exceeded']
+  is_active       boolean     [not null, default: true, note: 'Hidden from pricing when false']
+  sort_order      integer     [not null, default: 0]
+  created_at      timestamptz [not null, default: `now()`]
+  updated_at      timestamptz [not null, default: `now()`]
+
+  Note: 'Plans shown on the landing page (GET /api/plans). Source of truth for price and duration (PRD FR-P01, FR-H03).'
+}
+
+Table orders {
+  id              uuid         [pk, default: `gen_random_uuid()`]
+  plan_id         uuid         [not null, ref: > plans.id]
+  status          order_status [not null, default: 'pending']
+  amount_idr      integer      [not null, note: 'Price snapshot at purchase time']
+  payment_method  payment_method [null, note: 'bank_transfer or qris (manual). NULL for future automatic payments']
+  payment_reference varchar(100) [null, note: 'Transfer/QRIS reference number, if any']
+  payment_proof_path varchar(255) [null, note: 'Proof-of-payment file, relative to PAYMENT_PROOF_DIR. Private, never served publicly']
+  buyer_name      varchar(150) [not null, note: 'Personal data. Never log']
+  buyer_whatsapp  varchar(20)  [not null, note: 'Personal data, international format (62...). Never log or send to Telegram']
+  provider        varchar(50)  [null, note: 'Future automatic payment, e.g. skaler (PRD FR-P06)']
+  provider_ref    varchar(150) [null, unique, note: 'Provider event/transaction id; unique = idempotent webhook']
+  note            text         [null, note: 'Admin note']
+  paid_at         timestamptz  [null]
+  fulfilled_at    timestamptz  [null, note: 'When the code was sent to the buyer']
+  created_at      timestamptz  [not null, default: `now()`]
+  updated_at      timestamptz  [not null, default: `now()`]
+
+  Indexes {
+    status
+    created_at
+    buyer_whatsapp
+  }
+
+  Note: 'Purchase records. MVP: created by admin via CLI when a WhatsApp purchase is confirmed (PRD FR-P02, FR-P05).'
+}
+
+Table access_codes {
+  id              uuid               [pk, default: `gen_random_uuid()`]
+  code_hash       char(64)           [not null, unique, note: 'HMAC-SHA256(code, ACCESS_CODE_PEPPER), hex. Raw code is never stored (SEC-01)']
+  code_hint       varchar(4)         [not null, note: 'Last 4 characters, so admin can identify a code without storing it']
+  plan_id         uuid               [not null, ref: > plans.id]
+  order_id        uuid               [null, unique, ref: - orders.id, note: 'One order provisions at most one code']
+  status          access_code_status [not null, default: 'unused']
+  duration_days   integer            [not null, note: 'Copied from plan at creation; later plan changes do not affect sold codes']
+  max_devices     integer            [null, note: 'Copied from plan at creation; NULL = unlimited']
+  activated_at    timestamptz        [null, note: 'Set by backend on first use (PRD FR-H02)']
+  expires_at      timestamptz        [null, note: 'activated_at + duration_days (PRD FR-H03)']
+  disabled_at     timestamptz        [null]
+  disabled_reason text               [null]
+  created_at      timestamptz        [not null, default: `now()`]
+  updated_at      timestamptz        [not null, default: `now()`]
+
+  Indexes {
+    status
+    expires_at
+    plan_id
+  }
+
+  Note: 'Access entitlement (PRD §18). Unique per buyer. Status flow: unused -> active -> expired, or -> disabled.'
+}
+
+Table sessions {
+  id              uuid        [pk, default: `gen_random_uuid()`]
+  access_code_id  uuid        [not null, ref: > access_codes.id]
+  token_hash      char(64)    [not null, unique, note: 'SHA-256 of the random cookie token. Raw token only in the HttpOnly cookie']
+  user_agent      varchar(255) [null, note: 'Helps admin recognise devices; no IP address stored']
+  created_at      timestamptz [not null, default: `now()`]
+  last_seen_at    timestamptz [not null, default: `now()`]
+  expires_at      timestamptz [not null, note: 'Never later than access_codes.expires_at']
+  revoked_at      timestamptz [null, note: 'Set on logout or when admin disables the code']
+
+  Indexes {
+    (access_code_id, revoked_at) [note: 'Count active sessions for the device limit']
+    expires_at
+  }
+
+  Note: 'Temporary session after access-code activation (PRD §19). Protected requests check: session valid + code active + not expired.'
+}
+
+Table usage_logs {
+  id              bigint           [pk, increment]
+  event           usage_event_type [not null]
+  access_code_id  uuid             [null, ref: > access_codes.id]
+  session_id      uuid             [null, ref: > sessions.id]
+  metadata        jsonb            [null, note: 'Small, non-sensitive context only (e.g. question count). Never full question content']
+  created_at      timestamptz      [not null, default: `now()`]
+
+  Indexes {
+    (event, created_at)
+    access_code_id
+  }
+
+  Note: 'Product usage analytics (PRD §29).'
+}
+
+Table system_settings {
+  key             varchar(100) [pk, note: 'e.g. admin_whatsapp (shown publicly for questions and payment verification)']
+  value           jsonb        [not null]
+  description     text         [null]
+  updated_at      timestamptz  [not null, default: `now()`]
+
+  Note: 'Server-side configuration that should not be hard-coded (DATABASE.md §2). Never store secrets here.'
+}

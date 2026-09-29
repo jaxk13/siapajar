@@ -15,6 +15,8 @@ interface AppShellProps {
   steps: AppNavItem[];
   title: string;
   description?: string;
+  /** Formatted access expiry date, shown in the top bar. */
+  accessUntil?: string;
   theme: "light" | "dark";
   onToggleTheme: () => void;
   onResetData: () => void;
@@ -27,6 +29,7 @@ export default function AppShell({
   steps,
   title,
   description,
+  accessUntil,
   theme,
   onToggleTheme,
   onResetData,
@@ -91,7 +94,7 @@ export default function AppShell({
 
           <p className="hidden shrink-0 items-center gap-2 text-sm text-fg-muted sm:flex">
             <span className="size-2 rounded-full bg-success" aria-hidden="true" />
-            Akses aktif
+            {accessUntil ? `Aktif hingga ${accessUntil}` : "Akses aktif"}
           </p>
         </header>
 
@@ -110,7 +113,7 @@ function SidebarContent({
   onToggleTheme,
   onResetData,
   onLogout,
-}: Omit<AppShellProps, "title" | "description" | "children">) {
+}: Omit<AppShellProps, "title" | "description" | "accessUntil" | "children">) {
   return (
     <div className="flex h-full flex-col">
       <div className="flex h-16 shrink-0 items-center border-b border-line px-5">

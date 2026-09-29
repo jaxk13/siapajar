@@ -220,7 +220,15 @@ Do not claim verification that was not actually run.
 4. Stop (keeps data): `docker compose -f docker-compose.dev.yml down`
 5. Reset (deletes local data): `docker compose -f docker-compose.dev.yml down -v`
 
-The port is bound to `127.0.0.1` only. Schema changes still require tracked migrations (`DATABASE.md` §5).
+The port is bound to `127.0.0.1` only. Schema changes still require tracked migrations (`DATABASE.md` §6).
+
+After the database is running:
+
+6. Apply migrations: `npm run db:migrate` (safe to repeat)
+7. Seed plans and settings: `npm run db:seed` (safe to repeat; updates plans by slug)
+8. Create a test access code: `npm run access:create -- --plan pro --test`
+
+New migrations go in `server/db/migrations/` as `NNN_description.sql`; never edit a migration that has already been applied.
 
 ## 16. Git Hygiene
 

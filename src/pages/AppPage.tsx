@@ -84,7 +84,10 @@ const DEFAULT_SETTINGS: ExportSettings = {
 
 export default function AppPage({ path }: { path: string }) {
   const { navigate } = useRouter();
-  const { logout } = useAccess();
+  const { logout, session } = useAccess();
+  const accessUntil = session
+    ? new Date(session.expiresAt).toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" })
+    : undefined;
 
   const [promptConfig, setPromptConfig] = useState<PromptConfig>(() => {
     try {
@@ -249,6 +252,7 @@ export default function AppPage({ path }: { path: string }) {
       }))}
       title={step ? step.label : "Beranda"}
       description={step ? step.description : "Ringkasan naskah yang sedang Anda susun"}
+      accessUntil={accessUntil}
       theme={theme}
       onToggleTheme={handleToggleTheme}
       onResetData={handleResetAll}

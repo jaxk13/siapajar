@@ -5,6 +5,7 @@ import SkipLink from "../components/layout/SkipLink";
 import Badge from "../components/ui/Badge";
 import { buttonClasses } from "../components/ui/Button";
 import Container from "../components/ui/Container";
+import PricingSection from "../features/plans/PricingSection";
 import { Link, usePageTitle } from "../lib/router";
 
 // Content follows docs/PRD.md §3 (problems), §6 (workflow) and §9–16 (outputs).
@@ -214,16 +215,17 @@ export default function LandingPage() {
           </Container>
         </section>
 
-        {/* Access code / final CTA */}
-        <section id="kode-akses" aria-labelledby="kode-akses-title" className="border-t border-line bg-surface py-16 md:py-20">
+        <PricingSection />
+
+        {/* Final CTA */}
+        <section aria-labelledby="cta-title" className="border-t border-line py-16 md:py-20">
           <Container className="flex flex-col gap-8 md:flex-row md:items-center md:justify-between">
             <div className="max-w-xl">
-              <h2 id="kode-akses-title" className="text-2xl font-bold tracking-tight text-fg sm:text-3xl">
-                Masuk dengan kode akses
+              <h2 id="cta-title" className="text-2xl font-bold tracking-tight text-fg sm:text-3xl">
+                Sudah punya kode akses?
               </h2>
               <p className="mt-3 text-base leading-relaxed text-fg-muted">
-                SIAPAJAR tidak memerlukan akun. Kode akses diberikan setelah pembelian, dan setiap kode memiliki masa
-                aktif sesuai paket yang dipilih. Draf naskah tersimpan otomatis di perangkat Anda.
+                Masuk dan mulai dari parameter soal. Draf naskah tersimpan otomatis di perangkat Anda.
               </p>
             </div>
             <Link to="/masuk" className={buttonClasses("primary", "lg", "shrink-0")}>

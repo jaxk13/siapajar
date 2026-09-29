@@ -132,10 +132,11 @@ src/
   components/ui/        reusable primitives (Button, Input, FormField, Alert, Badge, EmptyState, PageHeader, Container, Logo)
   components/layout/    MarketingHeader/Footer, AuthLayout, AppShell, SkipLink
   components/           existing workflow screens (PromptStep … DownloadStep)
-  features/access/      access service (temporary) + AccessProvider
+  features/access/      access service (API calls) + AccessProvider
   features/import/      parser
   features/export/      Word export
   lib/router.tsx        minimal History API router
+  lib/apiClient.ts      single API boundary (envelope handling, user-facing errors)
   pages/                LandingPage, AccessPage, AppPage, AppHome, NotFoundPage
   types/
 
@@ -143,7 +144,14 @@ server/
   index.ts              bootstrap (Vite middleware in dev, dist/ in production)
   app.ts                Express app + /api router + error handler
   config/env.ts         typed environment configuration
-  routes/ controllers/ services/ middleware/ lib/
+  routes/               URL + method → controller
+  controllers/          request/response only
+  services/             business logic (access, plans, admin operations)
+  repositories/         SQL queries (data layer)
+  middleware/           error handler, rate limit, requireSession
+  lib/                  access-code hashing, cookies, WhatsApp helpers, API envelope
+  db/                   pool, migrate.ts, seed.ts, migrations/*.sql, seeds/
+  scripts/access-cli.ts admin CLI (create / list / disable access codes)
 
 ### Frontend routes
 
@@ -157,7 +165,7 @@ server/
 
 Routing uses the History API without a router dependency. Express serves `index.html` for every non-`/api` path, so deep links and refresh work.
 
-Until Phase 1, `features/access/accessService.ts` performs a temporary client-side check. It is not security. Phase 1 replaces its implementation with the `/api/access` and `/api/session` endpoints without changing its callers.
+Access: `features/access/accessService.ts` calls `/api/access/activate`, `/api/session`, and `/api/session/logout` through `lib/apiClient.ts`. The session token lives only in an HttpOnly cookie; `AccessProvider` checks `GET /api/session` on load and the router shows a short loading state while checking.
 
 ## 5. Core Domain Concepts
 

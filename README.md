@@ -10,6 +10,13 @@ SIAPAJAR bukan sekadar pembungkus satu model AI. SIAPAJAR mengatur parameter soa
 
 > Status: **MVP dalam pengembangan.** Beberapa bagian di bawah ini masih berupa rencana dan ditandai dengan jelas.
 
+Panduan perawatan per bagian (route dan tugas setiap file):
+
+| Bagian | Dokumen |
+|---|---|
+| Frontend | [`src/README.md`](src/README.md) |
+| Backend | [`server/README.md`](server/README.md) |
+
 Dokumentasi lengkap ada di folder [`docs/`](docs/):
 
 | Dokumen | Isi |
@@ -63,8 +70,8 @@ Prinsip penting (lihat `docs/DECISIONS.md`):
 | Bagian | Teknologi |
 |---|---|
 | Frontend | React 19, TypeScript, Vite, Tailwind CSS 4, lucide-react, motion |
-| Backend | Node.js, Express 4, dotenv |
-| Database | PostgreSQL (lokal via Docker; belum dipakai oleh aplikasi) |
+| Backend | Node.js, Express 4, dotenv, pg (driver PostgreSQL) |
+| Database | PostgreSQL 17 (lokal via Docker) dengan migration SQL dan seeder |
 | Build | Vite (frontend), esbuild (server → `dist/server.cjs`) |
 | Deployment (target) | VPS Linux, Nginx, PM2, HTTPS |
 
@@ -74,20 +81,24 @@ Prinsip penting (lihat `docs/DECISIONS.md`):
 
 ```
 siapajar/
-├── server/                   # Backend Express
+├── server/                   # Backend Express (panduan: server/README.md)
 │   ├── index.ts              #   entry point: bootstrap server (Vite di dev, dist/ di production)
 │   ├── app.ts                #   konfigurasi Express + routing /api
 │   ├── config/env.ts         #   membaca environment variable
 │   ├── routes/               #   definisi endpoint
 │   ├── controllers/          #   menangani request/response
-│   ├── services/             #   logika bisnis
-│   ├── middleware/           #   error handler, 404
-│   └── lib/                  #   helper format respons API
-├── src/                      # Frontend React
+│   ├── services/             #   logika bisnis (akses, paket, operasi admin)
+│   ├── repositories/         #   query SQL
+│   ├── middleware/           #   error handler, rate limit, cek sesi
+│   ├── lib/                  #   hash kode akses, cookie, WhatsApp, format respons API
+│   ├── db/                   #   koneksi, migrate.ts, seed.ts, migrations/*.sql, seeds/
+│   └── scripts/access-cli.ts #   CLI admin: buat / lihat / nonaktifkan kode akses
+├── src/                      # Frontend React (panduan: src/README.md)
 │   ├── main.tsx              #   entry point React
 │   ├── App.tsx               #   daftar route (/, /masuk, /app/*)
 │   ├── index.css             #   token desain, tema, aturan cetak
 │   ├── lib/router.tsx        #   router kecil berbasis History API
+│   ├── lib/apiClient.ts      #   satu pintu untuk memanggil API
 │   ├── pages/                #   Landing, Masuk, App (shell + langkah), 404
 │   ├── components/
 │   │   ├── ui/               #   komponen dasar: Button, Input, FormField, Alert, Badge, ...
@@ -95,7 +106,7 @@ siapajar/
 │   │   └── *Step.tsx         #   layar per langkah (Prompt, AI, Impor, Editor, Kop, Unduh)
 │   ├── types/                #   tipe data (soal, kop, pengaturan)
 │   └── features/
-│       ├── access/           #   layanan kode akses (sementara sampai Phase 1)
+│       ├── access/           #   pemanggilan API kode akses & sesi
 │       ├── import/parser.ts  #   parser hasil AI → data soal
 │       └── export/exportWord.ts  # generator dokumen Word
 ├── docs/                     # Dokumentasi produk & teknis
@@ -112,7 +123,7 @@ siapajar/
 
 - **Node.js** `^20.19.0` atau `>=22.12.0` (syarat dari Vite)
 - **npm**
-- **Docker Desktop** — hanya jika ingin menjalankan PostgreSQL lokal
+- **Docker Desktop** — untuk PostgreSQL lokal (wajib untuk bisa masuk ke aplikasi)
 
 ### Langkah demi langkah (development)
 
@@ -135,17 +146,37 @@ siapajar/
    cp .env.example .env
    ```
 
-   Lalu isi nilai yang diperlukan di `.env` (lihat bagian [Environment variable](#5-environment-variable)). Untuk sekadar menjalankan aplikasi, `.env` boleh dibiarkan seperti contoh.
+   Lalu isi di `.env` (lihat bagian [Environment variable](#5-environment-variable)):
+   - `POSTGRES_PASSWORD`, dan password yang sama di `DATABASE_URL`;
+   - `ACCESS_CODE_PEPPER`, dibuat dengan:
+     ```bash
+     node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+     ```
+   - `ADMIN_WHATSAPP` (opsional untuk development).
 
-4. **(Opsional) Jalankan PostgreSQL lokal** — lihat bagian [Database](#8-database).
+4. **Jalankan PostgreSQL, migration, dan seeder**
 
-5. **Jalankan aplikasi**
+   ```bash
+   docker compose -f docker-compose.dev.yml up -d
+   npm run db:migrate
+   npm run db:seed
+   ```
+
+5. **Buat kode akses untuk mencoba**
+
+   ```bash
+   npm run access:create -- --plan pro --test
+   ```
+
+   Kode (misalnya `SPJR-7K4M-Q9XD-2HTB`) hanya ditampilkan sekali. Salin untuk dipakai masuk.
+
+6. **Jalankan aplikasi**
 
    ```bash
    npm run dev
    ```
 
-   Buka **http://localhost:3000**. Frontend dan API berjalan bersama di alamat ini.
+   Buka **http://localhost:3000**. Frontend dan API berjalan bersama di alamat ini. Masuk di `/masuk` dengan kode dari langkah 5.
 
 ### Menjalankan versi production di komputer sendiri
 
@@ -167,6 +198,11 @@ npm start
 | `npm run lint` | Pemeriksaan tipe TypeScript (`tsc --noEmit`) |
 | `npm run preview` | Pratinjau frontend hasil build saja (**tanpa** API) |
 | `npm run clean` | Menghapus folder `dist/` |
+| `npm run db:migrate` | Menjalankan migration yang belum diterapkan (aman diulang) |
+| `npm run db:seed` | Mengisi/memperbarui paket Instan & Pro dan nomor WA admin (aman diulang) |
+| `npm run access:create -- ...` | Membuat kode akses (lihat [Perintah admin](#perintah-admin-cli-di-server-bukan-endpoint-http)) |
+| `npm run access:list` | Melihat daftar kode akses |
+| `npm run access:disable -- <kode/akhiran>` | Menonaktifkan kode akses |
 
 ---
 
@@ -178,12 +214,15 @@ Disimpan di file `.env` (tidak ikut ke git). Jangan pernah commit API key atau p
 |---|---|---|
 | `PORT` | Tidak | Port server (default `3000`) |
 | `HOST` | Tidak | Alamat bind server (default `0.0.0.0`) |
-| `GEMINI_API_KEY` | Tidak | Hanya untuk fitur lama "Generate Otomatis via API" (Gemini). Fitur ini **bukan** bagian inti MVP; alur utama memakai AI eksternal. Kosongkan untuk menonaktifkan. |
+| `TRUST_PROXY` | Production | Jumlah proxy di depan aplikasi. Isi `1` di belakang Nginx agar rate limit membaca IP asli |
 | `POSTGRES_USER` | Untuk Docker | Nama user database lokal (default `siapajar`) |
 | `POSTGRES_PASSWORD` | Untuk Docker | Password database lokal. **Wajib diisi** sebelum menjalankan Docker. |
 | `POSTGRES_DB` | Untuk Docker | Nama database lokal (default `siapajar_dev`) |
 | `POSTGRES_PORT` | Untuk Docker | Port di komputer Anda (default `5432`) |
-| `DATABASE_URL` | Belum dipakai | Connection string untuk backend (rencana Phase 9) |
+| `DATABASE_URL` | **Ya** | Connection string PostgreSQL untuk backend, migration, seeder, dan CLI |
+| `ACCESS_CODE_PEPPER` | **Ya** | Secret untuk hash kode akses. Jangan diubah setelah kode dibagikan, karena semua kode lama menjadi tidak berlaku |
+| `ADMIN_WHATSAPP` | Tidak | Nomor WA admin (contoh `081234567890`), ditampilkan untuk pertanyaan & verifikasi pembayaran. Disimpan ke database oleh `npm run db:seed` |
+| `PAYMENT_PROOF_DIR` | Tidak | Folder bukti transaksi (default `storage/payment-proofs`). Tidak pernah bisa diakses publik |
 
 Semua environment variable dibaca di satu tempat: `server/config/env.ts`.
 
@@ -199,7 +238,7 @@ Contoh cek server:
 curl http://localhost:3000/api/health
 ```
 
-### Struktur backend (target)
+### Struktur backend
 
 Alur request mengikuti `docs/DEVELOPMENT.md`:
 
@@ -239,8 +278,8 @@ Frontend memakai router kecil berbasis History API (tanpa library tambahan). Set
 
 | URL | Halaman | Akses | Isi | Fase | Status |
 |---|---|---|---|---|---|
-| `/` | Landing page | Publik | Penjelasan produk, cara kerja, hasil dokumen, cara mendapatkan kode akses | — | ✅ Ada |
-| `/masuk` | Masuk dengan kode akses | Publik | Form kode akses. Jika akses sudah aktif, diarahkan ke `/app` | 1 | ✅ Ada (validasi masih sementara di browser) |
+| `/` | Landing page | Publik | Penjelasan produk, cara kerja, hasil dokumen, **harga** (`#harga`), cara mendapatkan kode akses, kontak WA admin | — | ✅ Ada |
+| `/masuk` | Masuk dengan kode akses | Publik | Form kode akses, divalidasi backend. Jika akses sudah aktif, diarahkan ke `/app` | 1 | ✅ Ada |
 | `/app` | Beranda aplikasi | Perlu akses | Ringkasan naskah yang sedang disusun, alur penyusunan | 1 | ✅ Ada |
 | `/app/parameter` | Parameter & Prompt | Perlu akses | Parameter soal dan prompt siap salin (layar lama, isinya belum diubah) | 2–3 | ✅ Ada |
 | `/app/jalankan-ai` | Jalankan AI | Perlu akses | Petunjuk memakai AI eksternal, pintasan ke ChatGPT/Gemini/Claude | 4 | ✅ Ada |
@@ -255,7 +294,7 @@ Frontend memakai router kecil berbasis History API (tanpa library tambahan). Set
 
 Aturan:
 
-- Semua URL `/app/*` memerlukan akses aktif. Jika belum, pengguna diarahkan ke `/masuk`. Sampai Phase 1, status akses masih dicek di browser (bukan keamanan); di Phase 1 diganti dengan sesi dari backend.
+- Semua URL `/app/*` memerlukan sesi aktif. Saat halaman dibuka, frontend memanggil `GET /api/session`; jika sesi tidak ada atau kedaluwarsa, pengguna diarahkan ke `/masuk`.
 - Data draf soal tetap disimpan di browser (Local First); berpindah halaman tidak mengirim isi soal ke server.
 - **Tidak ada** halaman registrasi, lupa password, atau profil pengguna. PRD §7 dan `DECISIONS.md` ADR-003 menetapkan akses hanya melalui kode akses.
 - Di production, Express mengarahkan semua URL non-`/api` ke `index.html`, sehingga URL di atas bisa dibuka langsung atau di-refresh.
@@ -276,19 +315,22 @@ Semua endpoint berada di bawah `/api`. Kontrak resmi ada di [`docs/API.md`](docs
 
 | Method | Endpoint | Akses | Fungsi | Fase | Status |
 |---|---|---|---|---|---|
-| `POST` | `/api/access/activate` | Publik, **rate limited** | Validasi & aktivasi kode akses, membuat sesi (cookie HttpOnly, Secure, SameSite) | 1 | 🟡 Rencana |
-| `POST` | `/api/access/validate` | Publik, **rate limited** | Disebut di PRD SEC-04, **belum ada di `API.md`**; fungsinya perlu diputuskan | 1 | ❓ Perlu keputusan |
-| `GET` | `/api/session` | Perlu sesi | Status sesi saat ini (termasuk masa berlaku) | 1 | 🟡 Rencana |
-| `POST` | `/api/session/logout` | Perlu sesi | Mengakhiri sesi | 1 | 🟡 Rencana |
+| `POST` | `/api/access/activate` | Publik, **rate limited** (5×/menit/IP) | Validasi & aktivasi kode akses, membuat sesi (cookie `siapajar_session`: HttpOnly, Secure di production, SameSite=Lax). Maks. 2 perangkat; perangkat yang paling lama tidak dipakai dikeluarkan | 1 | ✅ Ada |
+| `GET` | `/api/session` | Perlu sesi | Status sesi: masa berlaku dan paket. `401 SESSION_INVALID` jika tidak ada/kedaluwarsa | 1 | ✅ Ada |
+| `POST` | `/api/session/logout` | Publik | Mengakhiri sesi dan menghapus cookie | 1 | ✅ Ada |
+| `POST` | `/api/access/validate` | — | Disebut di PRD SEC-04, tetapi tidak diperlukan karena sudah dicakup `GET /api/session` | — | ❓ Usul dihapus dari PRD |
 
 Contoh `POST /api/access/activate`:
 
 ```json
-// request
-{ "code": "KODE_DARI_PENGGUNA" }
+// request (huruf besar/kecil, spasi, dan tanda "-" bebas)
+{ "code": "SPJR-7K4M-Q9XD-2HTB" }
 
-// respons sukses
-{ "success": true, "data": { "session": { "expiresAt": "..." } } }
+// respons sukses (token sesi hanya ada di cookie HttpOnly, tidak di JSON)
+{ "success": true, "data": { "session": { "expiresAt": "2026-10-30T00:00:00.000Z", "plan": { "slug": "pro", "name": "Pro" }, "signedOutOtherDevice": false } } }
+
+// respons gagal
+{ "success": false, "error": { "code": "ACCESS_CODE_INVALID", "message": "Kode akses tidak valid atau sudah kedaluwarsa." } }
 ```
 
 #### Penggunaan (analytics)
@@ -297,19 +339,29 @@ Contoh `POST /api/access/activate`:
 |---|---|---|---|---|---|
 | `POST` | `/api/usage/event` | Perlu sesi | Mencatat event: `access_activated`, `session_created`, `prompt_generated`, `output_parsed`, `export_word`, `export_print`. Tidak mengirim isi soal. | 9 | 🟡 Rencana |
 
-#### Pembayaran
+#### Paket & pembayaran
 
 | Method | Endpoint | Akses | Fungsi | Fase | Status |
 |---|---|---|---|---|---|
-| `POST` | `/api/payment/webhook` | Provider (Skaler), diverifikasi | Menerima event pembayaran, membuat kode akses. Wajib idempoten (satu pembayaran = satu kode). | 10 | 🟡 Rencana |
+| `GET` | `/api/plans` | Publik | Paket aktif (nama, harga, masa aktif, batas perangkat) dan kontak WhatsApp admin, untuk section harga di landing page | 10 | ✅ Ada (dipakai section harga di landing page) |
+| `POST` | `/api/payment/webhook` | Provider (Skaler), diverifikasi | Pembayaran otomatis. **Ditunda**: pada MVP kode akses dikirim manual oleh admin lewat WhatsApp (PRD FR-P06) | — | ⛔ Bukan MVP |
+
+#### Perintah admin (CLI di server, bukan endpoint HTTP)
+
+| Perintah | Fungsi | Fase | Status |
+|---|---|---|---|
+| `npm run access:create -- --plan pro --name "Siti Aminah" --whatsapp 081234567890 --method qris --proof ./bukti.jpg [--reference TRX123]` | Mencatat pesanan (nama, WA, metode bayar, bukti transaksi), membuat kode unik, dan mencetak kode + pesan WA siap kirim. Kode hanya ditampilkan sekali | 1 | ✅ Ada |
+| `npm run access:create -- --plan pro --test` | Membuat kode uji tanpa pesanan | 1 | ✅ Ada |
+| `npm run access:list -- [--status active]` | Daftar kode: akhiran 4 karakter, paket, status, pembeli, jumlah perangkat aktif, tanggal | 1 | ✅ Ada |
+| `npm run access:disable -- <kode / 4 karakter terakhir / id> [--reason "..."]` | Menonaktifkan kode dan mengeluarkan semua perangkatnya | 1 | ✅ Ada |
 
 #### AI
 
 | Method | Endpoint | Akses | Fungsi | Fase | Status |
 |---|---|---|---|---|---|
-| `GET` | `/api/gemini/status` | Publik | Cek apakah `GEMINI_API_KEY` terpasang. Respons: `{ "hasKey": true/false }` | — | ✅ Ada (fitur lama, menunggu keputusan dipertahankan/dihapus) |
-| `POST` | `/api/gemini/generate-questions` | Publik | Generate soal langsung lewat Gemini | — | ✅ Ada (fitur lama, menunggu keputusan dipertahankan/dihapus) |
 | `POST` | `/api/ai/generate` | Perlu sesi | Direct AI / BYOK melalui provider abstraction, terpisah dari logika editor | Roadmap Phase 2 PRD | ⛔ Bukan MVP |
+
+Pada MVP, AI dijalankan guru di platform AI eksternal (PRD FR-C01), sehingga backend tidak memanggil AI. Endpoint Gemini dari prototipe awal sudah dihapus (ADR-015).
 
 Catatan: notifikasi Telegram (Phase 11) dikirim **dari** backend ke Telegram, sehingga tidak memiliki endpoint publik.
 
@@ -319,7 +371,7 @@ Catatan: notifikasi Telegram (Phase 11) dikirim **dari** backend ke Telegram, se
 
 PostgreSQL dipakai **hanya** untuk data server yang memang perlu disimpan (kode akses, sesi, pesanan, log penggunaan, pengaturan sistem). **Draf soal tidak disimpan di database**; draf tetap di browser guru.
 
-> Status: aplikasi **belum terhubung** ke database. Saat ini baru tersedia PostgreSQL lokal via Docker untuk persiapan Phase 9.
+> Status: sudah dipakai untuk kode akses, sesi, pesanan, dan paket. Migration: `server/db/migrations/`. Seeder: `server/db/seed.ts`.
 
 ### Menjalankan PostgreSQL lokal (Docker)
 
@@ -331,11 +383,28 @@ PostgreSQL dipakai **hanya** untuk data server yang memang perlu disimpan (kode 
    docker compose -f docker-compose.dev.yml up -d
    ```
 
-4. Masuk ke database:
+4. Buat tabel dan isi data awal:
+
+   ```bash
+   npm run db:migrate   # membuat/memperbarui tabel (aman diulang)
+   npm run db:seed      # paket Instan & Pro + nomor WA admin (aman diulang)
+   ```
+
+5. Masuk ke database (opsional):
 
    ```bash
    docker exec -it siapajar-postgres psql -U siapajar -d siapajar_dev
    ```
+
+### Seeder paket
+
+Data paket ada di **`server/db/seeds/plans.ts`**. Harga dan masa aktif di sana masih **placeholder** (Rp0, 7 dan 30 hari), dan kedua paket berstatus `isActive: false` supaya harga palsu tidak pernah tampil. Setelah harga final ditentukan:
+
+1. Ubah `priceIdr`, `durationDays`, dan `isActive: true` di file tersebut.
+2. Jalankan `npm run db:seed` lagi. Paket diperbarui berdasarkan `slug`.
+3. Muat ulang landing page. Kartu harga langsung tampil di section **Harga** (`/#harga`) tanpa mengubah kode. Selama belum ada paket aktif, section itu menampilkan "Informasi harga segera tersedia" dan tombol **Tanya Harga via WhatsApp**.
+
+Kode akses yang sudah terjual tidak ikut berubah, karena setiap kode menyimpan salinan masa aktif dan batas perangkatnya sendiri.
 
 | Tujuan | Perintah |
 |---|---|
@@ -345,24 +414,42 @@ PostgreSQL dipakai **hanya** untuk data server yang memang perlu disimpan (kode 
 
 Database hanya bisa diakses dari komputer Anda sendiri (`127.0.0.1`).
 
-### Tabel yang direncanakan
+### ERD (rancangan tabel)
+
+Diagram lengkap ada di **[`docs/ERD.dbml`](docs/ERD.dbml)**. Untuk melihatnya:
+
+1. Buka https://dbdiagram.io/d
+2. Salin seluruh isi `docs/ERD.dbml`, lalu tempel di panel kiri.
+
+```
+plans ──< orders ──── access_codes ──< sessions
+  │                      │   ▲           │
+  └──────────────────────┘   │           │
+                         usage_logs ─────┘
+system_settings (terpisah, key/value)
+```
 
 | Tabel | Fungsi |
 |---|---|
-| `access_codes` | Kode akses (disimpan dalam bentuk hash), paket, status `unused/active/expired/disabled`, masa berlaku |
-| `sessions` | Sesi sementara setelah kode akses diaktifkan |
-| `orders` | Data pesanan/pembayaran (Skaler) |
-| `usage_logs` | Catatan penggunaan fitur (tanpa isi soal) |
-| `system_settings` | Pengaturan server, misalnya durasi paket |
+| `plans` | Paket yang dijual (Instan, Pro): harga, masa aktif, batas perangkat. Ditampilkan di section harga |
+| `orders` | Catatan pembelian yang dikonfirmasi admin via WhatsApp |
+| `access_codes` | Kode akses unik per pembeli, disimpan dalam bentuk hash. Status `unused → active → expired`, atau `disabled` |
+| `sessions` | Sesi per perangkat setelah kode diaktifkan (cookie HttpOnly) |
+| `usage_logs` | Catatan penggunaan fitur, tanpa isi soal |
+| `system_settings` | Pengaturan server, misalnya nomor WhatsApp admin |
 
-Detail lengkap ada di [`docs/DATABASE.md`](docs/DATABASE.md). Setiap perubahan skema wajib melalui migration.
+Draf soal **tidak** disimpan di database; tetap di browser guru.
+
+Penjelasan setiap kolom dan aturan keamanan ada di [`docs/DATABASE.md`](docs/DATABASE.md). Setiap perubahan skema wajib melalui migration, dan `ERD.dbml` harus ikut diperbarui.
 
 ---
 
 ## 9. Cara menggunakan aplikasi
 
+0. **Membeli kode akses.** Guru menghubungi admin lewat WhatsApp dan membayar (transfer bank atau QRIS). Setelah pembayaran dikonfirmasi, admin menjalankan `npm run access:create` dengan data pembeli dan bukti transaksi, lalu mengirim kode unik lewat WhatsApp. Guru juga bisa langsung klik **Beli via WhatsApp** di section Harga pada landing page.
+
 1. **Masuk.** Buka http://localhost:3000 (landing page), klik **Masuk dengan Kode Akses**, lalu masukkan kode akses di `/masuk`. Setelah berhasil, Anda masuk ke beranda aplikasi (`/app`).
-   > Untuk development, kode aksesnya `GURU_HEBAT` (dicek di browser, bukan keamanan). Sistem kode akses yang divalidasi backend akan dibuat di Phase 1.
+   > Untuk development, buat kode uji dengan `npm run access:create -- --plan pro --test`.
 
 2. **Parameter & Prompt** (`/app/parameter`). Isi jenjang, kelas, mata pelajaran, materi, jumlah soal per jenis, tingkat kesulitan, dan catatan tambahan.
 
@@ -395,8 +482,9 @@ Rincian lengkap ada di [`docs/TASKS.md`](docs/TASKS.md).
 | 6 | Editor soal |
 | 7 | Kisi-kisi, kunci jawaban, kop sekolah |
 | 8 | Ekspor Word dan Print/PDF |
-| 9 | PostgreSQL dan operasional |
-| 10 | Pembayaran (Skaler) |
+| 9A | Fondasi database: koneksi, migration, tabel (dikerjakan sebelum Phase 1) |
+| 9 | Operasional: usage log, pengaturan sistem |
+| 10 | Harga di landing page dan pembelian manual via WhatsApp (Skaler otomatis ditunda) |
 | 11 | Monitoring Telegram |
 
 Cara kerja pengembangan: **PLAN → APPROVAL → IMPLEMENT → VERIFY** (lihat `AGENTS.md`).
