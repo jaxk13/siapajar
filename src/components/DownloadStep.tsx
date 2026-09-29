@@ -15,7 +15,7 @@ import {
   CheckCircle2,
 } from "lucide-react";
 import { QuestionItem, KopData, ExportSettings } from "../types";
-import { generateWordDocument } from "../utils/exportWord";
+import { generateWordDocument } from "../features/export/exportWord";
 
 interface DownloadStepProps {
   questions: QuestionItem[];

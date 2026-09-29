@@ -1,5 +1,120 @@
 @import "tailwindcss";
 
+/* ==========================================================================
+   SIAPAJAR design tokens (see docs/DESIGN.md §5)
+   Static scales live in @theme; semantic colors switch with [data-theme].
+   ========================================================================== */
+
+@theme {
+  --font-sans: "Plus Jakarta Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+
+  --color-brand-50: #eef6f1;
+  --color-brand-100: #d5eadd;
+  --color-brand-200: #aed5be;
+  --color-brand-300: #7db999;
+  --color-brand-400: #4e9a74;
+  --color-brand-500: #2f7d57;
+  --color-brand-600: #226a48;
+  --color-brand-700: #1b5639;
+  --color-brand-800: #164430;
+  --color-brand-900: #10321f;
+
+  --shadow-card: 0 1px 2px rgb(16 24 20 / 0.06);
+  --shadow-overlay: 0 12px 32px -8px rgb(16 24 20 / 0.18), 0 2px 6px rgb(16 24 20 / 0.06);
+}
+
+@theme inline {
+  --color-canvas: var(--sa-canvas);
+  --color-surface: var(--sa-surface);
+  --color-subtle: var(--sa-subtle);
+  --color-line: var(--sa-line);
+  --color-line-strong: var(--sa-line-strong);
+  --color-fg: var(--sa-fg);
+  --color-fg-muted: var(--sa-fg-muted);
+  --color-fg-subtle: var(--sa-fg-subtle);
+  --color-primary: var(--sa-primary);
+  --color-primary-hover: var(--sa-primary-hover);
+  --color-primary-soft: var(--sa-primary-soft);
+  --color-primary-fg: var(--sa-primary-fg);
+  --color-primary-text: var(--sa-primary-text);
+  --color-danger: var(--sa-danger);
+  --color-danger-soft: var(--sa-danger-soft);
+  --color-danger-line: var(--sa-danger-line);
+  --color-success: var(--sa-success);
+  --color-success-soft: var(--sa-success-soft);
+}
+
+@layer base {
+  :root {
+    /* Semantic tokens: light (default) */
+    --sa-canvas: #f7f7f4;
+    --sa-surface: #ffffff;
+    --sa-subtle: #f1f2ee;
+    --sa-line: #e3e5df;
+    --sa-line-strong: #cdd1c8;
+    --sa-fg: #16201a;
+    --sa-fg-muted: #4a554d;
+    --sa-fg-subtle: #646d63;
+    --sa-primary: #226a48;
+    --sa-primary-hover: #1b5639;
+    --sa-primary-soft: #eef6f1;
+    --sa-primary-fg: #ffffff;
+    --sa-primary-text: #1b5639;
+    --sa-danger: #b42318;
+    --sa-danger-soft: #fef3f2;
+    --sa-danger-line: #f5b8b2;
+    --sa-success: #177245;
+    --sa-success-soft: #ecf7f0;
+  }
+
+  [data-theme="dark"] {
+    --sa-canvas: #0f1511;
+    --sa-surface: #161e19;
+    --sa-subtle: #1d2721;
+    --sa-line: #2a352e;
+    --sa-line-strong: #3a473f;
+    --sa-fg: #e8eee9;
+    --sa-fg-muted: #b3bdb5;
+    --sa-fg-subtle: #8f9a92;
+    --sa-primary: #2f7d57;
+    --sa-primary-hover: #226a48;
+    --sa-primary-soft: #1a2c22;
+    --sa-primary-fg: #ffffff;
+    --sa-primary-text: #7fcca5;
+    --sa-danger: #f97066;
+    --sa-danger-soft: #2d1614;
+    --sa-danger-line: #6b2620;
+    --sa-success: #4cc38a;
+    --sa-success-soft: #132a1d;
+  }
+
+  /* Keyboard focus: visible on every interactive element. */
+  :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+    outline: 2px solid var(--sa-primary);
+    outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    ::before,
+    ::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+
+  html {
+    scroll-behavior: smooth;
+    scroll-padding-top: 5rem;
+  }
+}
+
+/* ==========================================================================
+   Legacy tokens used by the existing workflow screens (A–F). Kept unchanged.
+   ========================================================================== */
+
 @layer base {
   :root {
     --brand-dark: #1B4332;

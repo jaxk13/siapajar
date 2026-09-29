@@ -15,7 +15,7 @@ import {
   BookOpenCheck
 } from "lucide-react";
 import { QuestionItem, QuestionType, BloomLevel } from "../types";
-import { questionsToTableString } from "../utils/parser";
+import { questionsToTableString } from "../features/import/parser";
 
 interface ReviewStepProps {
   questions: QuestionItem[];
