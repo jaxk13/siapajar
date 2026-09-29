@@ -1,4 +1,4 @@
-import { QuestionItem, QuestionType } from "../types";
+import { QuestionItem, QuestionType } from "../../types";
 
 export interface ParseResult {
   questions: QuestionItem[];

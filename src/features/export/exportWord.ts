@@ -1,4 +1,4 @@
-import { QuestionItem, KopData, ExportSettings } from "../types";
+import { QuestionItem, KopData, ExportSettings } from "../../types";
 
 export function generateWordDocument(
   questions: QuestionItem[],

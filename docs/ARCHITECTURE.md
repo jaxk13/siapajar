@@ -1,0 +1,278 @@
+# SIAPAJAR Architecture
+
+## 1. Stack
+
+### Frontend
+
+- React 19
+- TypeScript
+- Vite
+- Tailwind CSS
+- `@tailwindcss/vite`
+- `@vitejs/plugin-react`
+
+### Backend
+
+- Node.js
+- Express
+
+### Database
+
+- PostgreSQL
+
+### Deployment
+
+- Linux VPS
+- Nginx
+- PM2
+- HTTPS
+
+## 2. High-Level Architecture
+
+Internet
+    ↓
+Nginx
+    ↓
+React Frontend ↔ Express API
+                    ↓
+                PostgreSQL
+                    ↓
+                 Telegram
+
+AI workflow:
+
+React
+  ↓
+Prompt Builder
+  ↓
+External AI
+  ↓
+AI Output
+  ↓
+Parser
+  ↓
+Validator
+  ↓
+Normalized Question Data
+  ↓
+Question Editor
+  ↓
+Export
+
+## 3. Architectural Boundaries
+
+### Frontend
+
+Responsible for:
+- presentation;
+- local draft state;
+- form interaction;
+- editor interaction;
+- API consumption;
+- browser-based print/PDF flow.
+
+The frontend must not access PostgreSQL directly.
+
+### Backend
+
+Responsible for:
+- access-code validation/activation;
+- temporary sessions;
+- server-side validation;
+- usage logging;
+- payment webhook;
+- system status;
+- future provider/API orchestration.
+
+### Domain/Services
+
+Business rules should live outside React components and thin route handlers.
+
+Core modules should include concepts such as:
+- access;
+- session;
+- prompt;
+- parsing;
+- validation;
+- questions;
+- export;
+- usage.
+
+## 4. Suggested Repository Structure
+
+src/
+  components/
+  features/
+    access/
+    assessment/
+    prompt/
+    import/
+    editor/
+    export/
+  hooks/
+  lib/
+  types/
+  styles/
+
+server/
+  routes/
+  controllers/
+  services/
+  middleware/
+  lib/
+  types/
+
+docs/
+
+The exact structure may evolve, but responsibility boundaries must remain clear.
+
+### Current structure (implemented)
+
+src/
+  components/ui/        reusable primitives (Button, Input, FormField, Alert, Badge, EmptyState, PageHeader, Container, Logo)
+  components/layout/    MarketingHeader/Footer, AuthLayout, AppShell, SkipLink
+  components/           existing workflow screens (PromptStep … DownloadStep)
+  features/access/      access service (temporary) + AccessProvider
+  features/import/      parser
+  features/export/      Word export
+  lib/router.tsx        minimal History API router
+  pages/                LandingPage, AccessPage, AppPage, AppHome, NotFoundPage
+  types/
+
+server/
+  index.ts              bootstrap (Vite middleware in dev, dist/ in production)
+  app.ts                Express app + /api router + error handler
+  config/env.ts         typed environment configuration
+  routes/ controllers/ services/ middleware/ lib/
+
+### Frontend routes
+
+| Path | Page | Access |
+|---|---|---|
+| `/` | Landing page | public |
+| `/masuk` | Access code entry | public (redirects to `/app` when access is active) |
+| `/app` | Application home | requires access |
+| `/app/parameter`, `/app/jalankan-ai`, `/app/impor`, `/app/editor`, `/app/kop`, `/app/export` | Existing workflow screens inside the app shell | requires access |
+| anything else | Not found | public |
+
+Routing uses the History API without a router dependency. Express serves `index.html` for every non-`/api` path, so deep links and refresh work.
+
+Until Phase 1, `features/access/accessService.ts` performs a temporary client-side check. It is not security. Phase 1 replaces its implementation with the `/api/access` and `/api/session` endpoints without changing its callers.
+
+## 5. Core Domain Concepts
+
+At MVP level:
+
+- AccessCode
+- Session
+- AssessmentParameters
+- Question
+- QuestionSet
+- SchoolHeader
+- Blueprint/KisiKisi
+- AnswerKey
+- UsageEvent
+- Order
+
+## 6. AI Architecture
+
+MVP mode is External AI First.
+
+The core editor must not depend on a particular AI provider.
+
+Future provider abstraction may conceptually follow:
+
+AIProvider
+├── External
+├── Gemini
+├── OpenAI
+└── Anthropic
+
+Provider-specific implementation must remain isolated from:
+- question editor;
+- question model;
+- export;
+- school header;
+- local draft storage.
+
+Direct AI is a future capability, not an MVP dependency.
+
+## 7. Parser Architecture
+
+Parsing should be independent from UI.
+
+Pipeline:
+
+Raw AI Output
+→ Parser
+→ Structural Validation
+→ Normalization
+→ QuestionSet
+→ Editor
+
+Partial failure must be supported.
+
+Example:
+38 questions valid
+2 questions invalid
+
+The valid questions should remain available while invalid items are identified for correction.
+
+## 8. Local-First Draft Architecture
+
+The active assessment draft is primarily stored in browser storage for MVP.
+
+Conceptual keys from the PRD:
+
+- `siapajar_current_draft`
+- `siapajar_school_header`
+- `siapajar_preferences`
+
+Autosave must not require a server request on every keystroke.
+
+## 9. Database Boundary
+
+PostgreSQL stores server-side data that is actually needed.
+
+MVP core tables:
+
+- access_codes
+- sessions
+- orders
+- usage_logs
+- system_settings
+
+Draft question content is not required to be stored in PostgreSQL for MVP.
+
+## 10. Security Boundary
+
+Production:
+- HTTPS;
+- secure random session identifiers;
+- appropriate hashing;
+- rate limiting on sensitive endpoints;
+- request-size limits;
+- backend input validation;
+- database not publicly exposed;
+- secrets only in environment/secret management;
+- no secrets in frontend bundles.
+
+## 11. Deployment
+
+Target:
+
+Internet
+→ HTTPS
+→ Nginx
+→ Node/Express + frontend
+→ PostgreSQL
+
+PM2 manages the Node application process.
+
+## 12. Performance
+
+Editor interactions should remain local and responsive.
+
+External AI latency is outside SIAPAJAR's direct control in the MVP external-AI workflow.
+
+Avoid unnecessary network requests for local editor operations.

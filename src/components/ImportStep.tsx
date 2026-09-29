@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { FileText, Play, RotateCcw, Trash2, ArrowRight, CheckCircle2, AlertTriangle, Eye } from "lucide-react";
 import { QuestionItem } from "../types";
-import { parseAITable, DEMO_TABLE_STRING } from "../utils/parser";
+import { parseAITable, DEMO_TABLE_STRING } from "../features/import/parser";
 
 interface ImportStepProps {
   onImportQuestions: (questions: QuestionItem[], append?: boolean) => void;

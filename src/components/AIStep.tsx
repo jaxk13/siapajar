@@ -14,7 +14,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { PromptConfig, QuestionItem } from "../types";
-import { parseAITable } from "../utils/parser";
+import { parseAITable } from "../features/import/parser";
 
 export interface AIStepProps {
   config: PromptConfig;
