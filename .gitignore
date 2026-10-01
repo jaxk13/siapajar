@@ -6,3 +6,5 @@ coverage/
 *.log
 .env*
 !.env.example
+# Payment proofs contain personal data; never commit them.
+storage/

@@ -59,7 +59,7 @@ export default function AccessPage() {
           <FormField
             id="access-code"
             label="Kode akses"
-            hint="Huruf besar dan kecil tidak dibedakan."
+            hint="Format: SPJR-XXXX-XXXX-XXXX. Huruf besar dan kecil tidak dibedakan."
             error={fieldError}
           >
             {(control) => (

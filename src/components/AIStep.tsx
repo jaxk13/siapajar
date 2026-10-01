@@ -8,10 +8,6 @@ import {
   ArrowLeft,
   Bot,
   FileText,
-  AlertCircle,
-  CheckCircle2,
-  Loader2,
-  RefreshCw,
 } from "lucide-react";
 import { PromptConfig, QuestionItem } from "../types";
 import { parseAITable } from "../features/import/parser";
@@ -24,7 +20,6 @@ export interface AIStepProps {
   onGoToReview: () => void;
   onShowToast: (msg: string) => void;
   onPrevStep?: () => void;
-  onNextStep?: (aiResult: string) => void;
 }
 
 const AI_LINKS = [
@@ -56,14 +51,10 @@ export default function AIStep({
   onGoToReview,
   onShowToast,
   onPrevStep,
-  onNextStep,
 }: AIStepProps) {
   const config = promptConfig || propConfig;
 
   const [copied, setCopied] = useState(false);
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [apiError, setApiError] = useState<string | null>(null);
-  const [apiSuccess, setApiSuccess] = useState<number | null>(null);
   const [quickPasteText, setQuickPasteText] = useState("");
 
   const totalQuestions = useMemo(() => {
@@ -122,57 +113,6 @@ Format kolom per baris:
     }
   };
 
-  const handleDirectGenerate = async () => {
-    setIsGenerating(true);
-    setApiError(null);
-    setApiSuccess(null);
-
-    try {
-      const response = await fetch("/api/gemini/generate-questions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          jenjang: config.jenjang,
-          kelas: config.kelas,
-          mapel: config.mapel,
-          materi: config.materi,
-          bukuSibi: config.bukuSibi,
-          typeCounts: config.typeCounts,
-          difficulty: config.difficulty || "Campuran",
-          levels: config.levels,
-          catatan: config.catatan,
-        }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok || data.error) {
-        throw new Error(data.error || "Gagal memproses soal melalui AI.");
-      }
-
-      const rawText = data.rawText || "";
-      const { questions } = parseAITable(rawText);
-
-      if (questions.length === 0) {
-        throw new Error("AI berhasil merespons, namun tabel soal tidak dapat diparsing dengan benar.");
-      }
-
-      onImportQuestions(questions, false);
-      setApiSuccess(questions.length);
-      onShowToast(`Berhasil membuat ${questions.length} butir soal secara otomatis!`);
-
-      if (onNextStep) {
-        onNextStep(rawText);
-      }
-    } catch (err: any) {
-      setApiError(err.message || "Terjadi kendala saat menghubungi layanan AI.");
-    } finally {
-      setIsGenerating(false);
-    }
-  };
-
   const handleProcessQuickPaste = () => {
     if (!quickPasteText.trim()) {
       onShowToast("Tempelkan tabel hasil AI terlebih dahulu.");
@@ -200,7 +140,7 @@ Format kolom per baris:
             B. Jalankan AI
           </h2>
           <p className="text-sm text-[var(--ink-3)] mt-1">
-            Gunakan perintah siap pakai dengan AI web gratis (ChatGPT, Gemini, Claude) atau jalankan langsung via API.
+            Gunakan perintah siap pakai dengan AI pilihan Anda (ChatGPT, Gemini, Claude), lalu salin hasilnya kembali ke sini.
           </p>
         </div>
 
@@ -282,12 +222,12 @@ Format kolom per baris:
         </div>
       </div>
 
-      {/* Pilihan 1: Buka AI Favorit di Tab Baru (Manual - Sangat Direkomendasikan) */}
+      {/* Buka AI eksternal di tab baru (PRD FR-C01) */}
       <div className="bg-[var(--surface)] p-5 sm:p-6 rounded-xl border border-[var(--border)] shadow-xs space-y-4">
         <div>
           <div className="flex items-center justify-between">
             <h3 className="text-base font-bold text-[var(--ink)]">
-              Pilihan 1: Buka AI Web Gratis (Direkomendasikan - Bebas Kuota)
+              Buka AI Pilihan Anda
             </h3>
             <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
               100% Gratis & Stabil
@@ -331,73 +271,6 @@ Format kolom per baris:
             <strong>Alur Mudah:</strong> Setelah AI selesai menyusun tabel soal, blok dan salin (Copy) tabel teks tersebut, lalu klik <strong>"Lanjut ke Impor Soal"</strong> di bawah untuk menempelkannya ke naskah ujian Anda.
           </div>
         </div>
-      </div>
-
-      {/* Pilihan 2: Generate Langsung via API */}
-      <div className="bg-[var(--surface)] p-5 sm:p-6 rounded-xl border border-[var(--border)] shadow-xs space-y-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h3 className="text-base font-bold text-[var(--ink)] flex items-center gap-2">
-              Pilihan 2: Generate Otomatis via API
-            </h3>
-            <p className="text-xs text-[var(--ink-3)] mt-1">
-              Gunakan API server untuk menghasilkan butir soal langsung di dalam aplikasi tanpa perlu pindah tab browser.
-            </p>
-          </div>
-
-          <button
-            type="button"
-            id="btn_direct_generate"
-            disabled={isGenerating}
-            onClick={handleDirectGenerate}
-            className="px-6 py-2.5 rounded-full font-bold text-sm bg-[#FF6600] hover:bg-[#E05A00] text-white shadow-sm hover:shadow transition-all disabled:opacity-50 flex items-center gap-2 cursor-pointer disabled:cursor-not-allowed"
-          >
-            {isGenerating ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                Menghasilkan Soal...
-              </>
-            ) : (
-              <>
-                <Sparkles className="w-4 h-4" />
-                Generate Sekarang
-              </>
-            )}
-          </button>
-        </div>
-
-        {apiError && (
-          <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs space-y-2">
-            <div className="font-bold flex items-center gap-1.5 text-sm">
-              <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
-              Layanan API Sedang Padat / Memerlukan Antrean
-            </div>
-            <p className="leading-relaxed text-amber-800">
-              {apiError}
-            </p>
-            <p className="text-amber-900 font-semibold pt-1">
-              💡 Solusi Instan: Salin perintah prompt di atas dan gunakan <strong>Pilihan 1 (ChatGPT / Gemini Web)</strong> yang gratis dan tanpa batasan antrean!
-            </p>
-          </div>
-        )}
-
-        {apiSuccess && (
-          <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs flex items-center justify-between flex-wrap gap-3">
-            <div className="flex items-center gap-2">
-              <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-              <span className="font-bold text-sm">
-                Berhasil merakit {apiSuccess} butir soal!
-              </span>
-            </div>
-            <button
-              type="button"
-              onClick={onGoToReview}
-              className="px-4 py-1.5 rounded-full bg-emerald-600 text-white font-bold text-xs hover:bg-emerald-700 transition cursor-pointer"
-            >
-              Lihat di Langkah D (Tinjau Soal) →
-            </button>
-          </div>
-        )}
       </div>
 
       {/* Tempel Cepat Hasil AI */}

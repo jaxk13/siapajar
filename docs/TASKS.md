@@ -14,17 +14,33 @@ This document is the active implementation checklist.
 - [x] Add basic health/status endpoint
 - [x] Confirm production build works
 
+## Implementation Order Note
+
+Phase 1 needs the database. Build **Phase 9A (database foundation)** before the Phase 1 API work.
+Order: Phase 9A → Phase 1 → Phase 10 (pricing & manual purchase) → Phases 2–8 → rest of Phase 9 → Phase 11.
+
+## Phase 9A — Database Foundation (before Phase 1)
+
+- [x] ERD designed (`docs/ERD.dbml`, `docs/DATABASE.md`)
+- [x] PostgreSQL driver (`pg`) and connection module
+- [x] Migration runner and first migration (plans, orders, access_codes, sessions, usage_logs, system_settings)
+- [x] Seeder for plans Instan and Pro (placeholder prices; inactive until real prices are set)
+- [x] `ACCESS_CODE_PEPPER` environment variable
+
 ## Phase 1 — Access and Session
 
-- [x] Access Code screen (UI at `/masuk`; uses a temporary client-side check until the Access Code API exists)
-- [ ] Access Code API
-- [ ] Access Code validation
-- [ ] Access Code activation state
-- [ ] Temporary session creation
-- [ ] Session validation
-- [ ] Session logout
-- [ ] Protected endpoint middleware
-- [ ] Rate limiting for sensitive access endpoints
+- [x] Access Code screen (`/masuk`)
+- [x] Access Code API
+- [x] Access Code validation
+- [x] Access Code activation state
+- [x] Temporary session creation
+- [x] Session validation
+- [x] Session logout
+- [x] Protected endpoint middleware
+- [x] Rate limiting for sensitive access endpoints
+- [x] Device limit per code (max 2, least recently used session signed out; ADR-014)
+- [x] Replace temporary client-side check in `src/features/access/accessService.ts`
+- [x] Admin CLI: `access:create`, `access:list`, `access:disable` (PRD FR-P03)
 
 ## Phase 2 — Assessment Parameters
 
@@ -115,26 +131,46 @@ Do NOT implement Direct AI as part of this phase.
 - [ ] Selectable document sections
 - [ ] Export verification
 
-## Phase 9 — PostgreSQL / Operations
+## Phase 9 — PostgreSQL / Operations (remaining)
 
-- [ ] Database schema
-- [ ] Migrations
-- [ ] Access code persistence
-- [ ] Session persistence if required by implementation
-- [ ] Orders
-- [ ] Usage logs
-- [ ] System settings
-- [ ] Operational status endpoint
+- [ ] Usage logs (`POST /api/usage/event`)
+- [ ] System settings management
+- [ ] Operational status endpoint includes database health
 
-## Phase 10 — Payment
+## Phase 10 — Pricing and Manual Purchase (PRD §21, ADR-011)
 
-- [ ] Payment provider integration
+- [ ] Decide plan prices and durations (BELUM DIPUTUSKAN), then update `server/db/seeds/plans.ts` and set `isActive: true`
+- [x] Device limit decided (2 per code)
+- [x] Payment method decided (bank transfer and QRIS)
+- [x] Admin WhatsApp number (set via `ADMIN_WHATSAPP` + `npm run db:seed`)
+- [x] `GET /api/plans`
+- [x] Pricing section on the landing page (`#harga`, data from `GET /api/plans`; shows a WhatsApp fallback while no plan is active)
+- [x] "Beli via WhatsApp" button with prefilled message
+- [x] Order recording via admin CLI (buyer name, WhatsApp, payment method, reference, proof file)
+
+### Deferred: Automatic Payment (PRD FR-P06)
+
+- [ ] Skaler integration
 - [ ] Webhook verification
-- [ ] Idempotent event handling
-- [ ] Access code provisioning
-- [ ] Payment error handling
+- [ ] Idempotent event handling (`orders.provider_ref` unique)
+- [ ] Automatic access code provisioning
 
 The exact implementation must follow the provider's actual API/webhook capabilities.
+
+## Phase 10A — Admin Panel (`/super-admin`, PRD FR-ADM, ADR-016)
+
+- [x] Migration `002_admin_panel` (users, user_sessions, audit_logs, created_by/disabled_by)
+- [x] Admin login (email + password, no registration), 8-hour session, rate limiting, same-origin check
+- [x] First super admin via CLI (`npm run user:create`), temporary password must be changed
+- [x] Roles: super_admin and admin
+- [x] Overview
+- [x] Create order with proof-of-payment upload, issue code, send via WhatsApp
+- [x] Order list, search, detail, proof viewer, active devices
+- [x] Access code list, filter, regenerate, disable, test codes
+- [x] Plans & prices, admin WhatsApp setting
+- [x] Team management (create, role, deactivate, reset password)
+- [x] Activity log
+- [x] Responsive: phone, tablet, laptop
 
 ## Phase 11 — Telegram Monitoring
 

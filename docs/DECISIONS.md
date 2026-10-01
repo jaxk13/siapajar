@@ -74,7 +74,9 @@ This keeps MVP focused on the core assessment workflow.
 
 ### Consequence
 
-Account/cloud features remain deferred.
+Account/cloud features remain deferred for teachers.
+
+Admin team accounts for `/super-admin` (ADR-016) are separate and do not change this decision: teachers still never register or sign in with a password.
 
 ---
 
@@ -205,3 +207,127 @@ The project uses:
 ### Consequence
 
 Changes to architecture or contracts should update the relevant documentation.
+
+---
+
+## ADR-011 — Manual Purchase and Code Delivery via WhatsApp
+
+Status: Accepted (PRD v2.1.0)
+
+### Decision
+
+In MVP, a teacher buys a plan by contacting the admin on WhatsApp. After confirming payment, the admin creates a unique access code with a server CLI command and sends it via WhatsApp.
+
+Automatic payment (Skaler webhook) is deferred (PRD FR-P06).
+
+### Reason
+
+- Faster launch and less integration risk (PRD §4.5 "Launch Fast").
+- Market validation does not require automatic provisioning.
+
+### Consequence
+
+- No payment webhook in MVP. (The "no web admin panel" part was superseded by ADR-016.)
+- `orders.provider_ref` stays in the schema so automatic payment can be added later without redesign.
+- Open: WhatsApp number, payment method, whether buyer data is stored.
+
+---
+
+## ADR-012 — Plans Stored in the Database
+
+Status: Accepted
+
+### Decision
+
+Plans (name, price, duration, device limit) live in the `plans` table and are served to the landing page via `GET /api/plans`. When a code is created, the plan's duration and device limit are copied onto the code.
+
+### Reason
+
+PRD FR-H03 forbids hard-coding durations in the frontend. One source of truth keeps the pricing section and the activation logic consistent. Copying values protects codes already sold from later plan changes.
+
+### Consequence
+
+Changing a price or duration is a data change, not a code deployment.
+
+---
+
+## ADR-013 — Access Code Hashing
+
+Status: Accepted
+
+### Decision
+
+Access codes are stored as `HMAC-SHA256(code, ACCESS_CODE_PEPPER)`. Session tokens are stored as SHA-256. Raw values are never stored or logged.
+
+### Reason
+
+Codes must be looked up by hash on every activation, so a deterministic hash is required (bcrypt/argon2 cannot be looked up). Codes have about 60 bits of randomness and activation is rate limited, so brute force is impractical. The pepper lives outside the database, so a database leak alone does not reveal codes.
+
+### Consequence
+
+`ACCESS_CODE_PEPPER` must be set in every environment and must not change after codes are issued (changing it invalidates all existing codes).
+
+---
+
+## ADR-014 — Device Limit: Sign Out the Least Recently Used Session
+
+Status: Accepted
+
+### Decision
+
+Each access code allows at most `max_devices` concurrent sessions (MVP: 2 for every plan). When the code signs in on another device, the least recently used session is revoked instead of rejecting the new login.
+
+### Reason
+
+- A teacher who changes or loses a device can always sign in again without contacting the admin.
+- A code shared between several people keeps signing the others out, which discourages sharing without blocking the legitimate owner.
+
+### Consequence
+
+The login response reports `signedOutOtherDevice`. The limit is stored per plan and copied onto each code (ADR-012).
+
+---
+
+## ADR-015 — Direct Gemini Option Removed
+
+Status: Accepted
+
+### Decision
+
+The prototype's "Generate Otomatis via API" (Gemini with SIAPAJAR's key) is removed from the UI and backend, together with `@google/genai`.
+
+### Reason
+
+PRD FR-C03 and ADR-001: Direct AI is not an MVP dependency. With paid access codes it would also make AI cost per teacher uncontrolled.
+
+### Consequence
+
+The MVP AI workflow is external AI only. Direct AI or BYOK can return later through `/api/ai/generate` and the provider abstraction.
+
+---
+
+## ADR-016 — Web Admin Panel for the Admin Team
+
+Status: Accepted (PRD v2.2.0). Supersedes the "no web admin panel" part of ADR-011.
+
+### Decision
+
+A web admin panel at `/super-admin` replaces the CLI as the main tool for orders and access codes.
+
+- Sign-in with email and password; **no registration**. Accounts live in the `users` table (admin team only).
+- Roles: `super_admin` (everything, including team, plans, settings, activity) and `admin` (orders and codes).
+- First super admin: `npm run user:create`. Afterwards, super admins add members in the panel.
+- New or reset accounts get a temporary password that must be changed on first sign-in.
+- Every admin action is written to `audit_logs`.
+
+### Reason
+
+The admin team serves buyers from phones, tablets, and laptops. The CLI requires SSH access to the server, which would also expose the database and secrets to every admin, and proof-of-payment files arrive on the phone.
+
+### Consequence
+
+- New tables: `users`, `user_sessions`, `audit_logs`; `created_by`/`disabled_by` columns on `orders` and `access_codes`.
+- Admin sessions are separate from teacher sessions: cookie `siapajar_admin`, `SameSite=Strict`, path `/api/super-admin`, 8 hours.
+- Passwords use Node's built-in `scrypt` (no new dependency).
+- Plans and the admin WhatsApp number are edited in the panel; `npm run db:seed` no longer overwrites them unless `--overwrite` is passed.
+- The CLI remains for the first account and emergencies.

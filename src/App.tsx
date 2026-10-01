@@ -1,6 +1,8 @@
+import { Loader2 } from "lucide-react";
 import { AccessProvider, useAccess } from "./features/access/AccessProvider";
 import { Redirect, RouterProvider, useRouter } from "./lib/router";
 import AccessPage from "./pages/AccessPage";
+import AdminRoutes from "./pages/admin/AdminRoutes";
 import AppPage from "./pages/AppPage";
 import LandingPage from "./pages/LandingPage";
 import NotFoundPage from "./pages/NotFoundPage";
@@ -17,20 +19,39 @@ export default function App() {
 
 function Routes() {
   const { path } = useRouter();
-  const { isActive } = useAccess();
+  const { status } = useAccess();
   const normalized = path.replace(/\/+$/, "") || "/";
 
   if (normalized === "/") {
     return <LandingPage />;
   }
 
+  // Admin panel: separate login and session (ADR-016); does not depend on teacher access.
+  if (normalized === "/super-admin" || normalized.startsWith("/super-admin/")) {
+    return <AdminRoutes path={normalized} />;
+  }
+
+  const needsAccessState = normalized === "/masuk" || normalized === "/app" || normalized.startsWith("/app/");
+  if (needsAccessState && status === "checking") {
+    return <CheckingSession />;
+  }
+
   if (normalized === "/masuk") {
-    return isActive ? <Redirect to="/app" /> : <AccessPage />;
+    return status === "active" ? <Redirect to="/app" /> : <AccessPage />;
   }
 
   if (normalized === "/app" || normalized.startsWith("/app/")) {
-    return isActive ? <AppPage path={normalized} /> : <Redirect to="/masuk" />;
+    return status === "active" ? <AppPage path={normalized} /> : <Redirect to="/masuk" />;
   }
 
   return <NotFoundPage />;
+}
+
+function CheckingSession() {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-canvas" role="status" aria-live="polite">
+      <Loader2 className="size-6 animate-spin text-fg-subtle" aria-hidden="true" />
+      <span className="sr-only">Memeriksa sesi…</span>
+    </div>
+  );
 }

@@ -12,6 +12,9 @@ Then read the relevant documents:
 - `docs/DEVELOPMENT.md`
 - `docs/TASKS.md`
 - `docs/DECISIONS.md`
+- `docs/ERD.dbml`
+- `src/README.md` (frontend routes & files) and `server/README.md` (backend routes & files)
+- `Logbook/README.md` (change history)
 
 `AGENTS.md` is the primary development instruction.
 
@@ -29,4 +32,4 @@ For substantial work, use:
 
 PLAN → APPROVAL → IMPLEMENT → VERIFY
 
-After implementation, report changed files and verification results.
+After implementation, report changed files and verification results, and record the change in `Logbook/` as `logbook-<nama-perubahan>-<nomor>.md` (AGENTS.md §11).

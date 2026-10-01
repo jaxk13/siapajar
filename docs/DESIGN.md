@@ -107,7 +107,19 @@ Semantic colors switch with `[data-theme="dark"]`. Public pages (landing, masuk)
 
 The legacy variables (`--surface`, `--ink`, `--brand-lime`, …) remain only for the existing workflow screens and should be migrated when those screens are reworked.
 
+### 5.2 Admin panel (`/super-admin`)
+
+The admin panel uses the same tokens and components as the teacher app. Additional rules:
+
+- Light theme only; a small "ADMIN" label next to the logo makes the area recognisable.
+- Built for phones as much as laptops: lists become stacked rows below `md`, the sidebar becomes a drawer below `lg`, primary actions sit in the top bar.
+- Destructive or irreversible actions (disable code, regenerate code, reset password) always use a confirmation `Dialog` that states the consequence; disabling a code requires a reason.
+- Secrets shown once (new access codes, temporary passwords) are displayed in a dedicated panel with copy actions and a clear "shown once" warning.
+- No dashboards or charts; the overview shows a few plain numbers and recent orders.
+
 ## 6. Core Components
+
+Implemented in `src/components/ui/`: Button, Input, Select, Textarea, FormField, Alert, Badge, Dialog, EmptyState, PageHeader, Container, Logo (see `src/README.md` §3).
 
 Prefer reusable components such as:
 

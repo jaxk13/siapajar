@@ -8,7 +8,7 @@ import Logo from "../ui/Logo";
 const NAV_LINKS = [
   { href: "#cara-kerja", label: "Cara Kerja" },
   { href: "#hasil-dokumen", label: "Hasil Dokumen" },
-  { href: "#kode-akses", label: "Kode Akses" },
+  { href: "#harga", label: "Harga" },
 ];
 
 export default function MarketingHeader() {

@@ -22,7 +22,7 @@ export default function MarketingFooter() {
               <a href="#hasil-dokumen" className="text-fg-muted hover:text-fg">Hasil Dokumen</a>
             </li>
             <li>
-              <a href="#kode-akses" className="text-fg-muted hover:text-fg">Kode Akses</a>
+              <a href="#harga" className="text-fg-muted hover:text-fg">Harga</a>
             </li>
             <li>
               <Link to="/masuk" className="text-fg-muted hover:text-fg">Masuk</Link>

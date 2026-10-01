@@ -22,6 +22,9 @@ Before changing code, read:
 6. `docs/DEVELOPMENT.md` — coding rules
 7. `docs/TASKS.md` — current implementation scope
 8. `docs/DECISIONS.md` — accepted technical/product decisions
+9. `docs/ERD.dbml` — database diagram (paste into dbdiagram.io)
+10. `src/README.md` and `server/README.md` — frontend/backend routes and file responsibilities
+11. `Logbook/` — history of every change made to the project
 
 If these documents conflict, do not silently choose a solution. Report the conflict before making a broad architectural change.
 
@@ -31,7 +34,7 @@ If these documents conflict, do not silently choose a solution. Report the confl
 - Draft editing is Local First.
 - Teacher review is required; AI output is a draft.
 - Do not make Direct AI generation a core MVP dependency.
-- Do not add account/authentication features that are explicitly outside MVP.
+- Do not add account/authentication features for teachers; teachers use access codes only (ADR-003). The only accounts are admin team accounts for `/super-admin` (ADR-016), and they have no registration.
 - Do not add features merely because they are common in SaaS products.
 - Do not make the primary teacher workflow more complex.
 - Do not store complete question drafts in PostgreSQL unless the product requirements are explicitly changed.
@@ -148,4 +151,16 @@ A task is complete when:
 - types/build checks pass where applicable;
 - relevant errors are handled;
 - no unrelated feature was introduced;
-- documentation is updated if architecture/API/decision behavior changed.
+- documentation is updated if architecture/API/decision behavior changed;
+- a logbook entry exists in `Logbook/` for the change (see §11).
+
+## 11. Logbook
+
+Every change to the project (code or documentation) must be recorded in `Logbook/`:
+
+- File name: `logbook-<nama-perubahan>-<nomor>.md` (kebab-case name, 3-digit number), e.g. `logbook-panel-admin-010.md`.
+- Numbers continue from the highest existing number; never reuse or renumber.
+- Use the template in `Logbook/README.md`: date, request, summary, changed files, decisions, verification, open issues.
+- Add the entry to the index table in `Logbook/README.md`.
+- Write it in Indonesian, factually; report only verification that was actually run.
+

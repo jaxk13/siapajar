@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { Home, LogOut, Menu, Moon, RotateCcw, Sun, X } from "lucide-react";
+import { Home, LogOut, Menu, Moon, RotateCcw, Sun } from "lucide-react";
 import { Link } from "../../lib/router";
 import Logo from "../ui/Logo";
+import MobileDrawer from "./MobileDrawer";
 import SkipLink from "./SkipLink";
 
 export interface AppNavItem {
@@ -15,6 +16,8 @@ interface AppShellProps {
   steps: AppNavItem[];
   title: string;
   description?: string;
+  /** Formatted access expiry date, shown in the top bar. */
+  accessUntil?: string;
   theme: "light" | "dark";
   onToggleTheme: () => void;
   onResetData: () => void;
@@ -27,6 +30,7 @@ export default function AppShell({
   steps,
   title,
   description,
+  accessUntil,
   theme,
   onToggleTheme,
   onResetData,
@@ -91,7 +95,7 @@ export default function AppShell({
 
           <p className="hidden shrink-0 items-center gap-2 text-sm text-fg-muted sm:flex">
             <span className="size-2 rounded-full bg-success" aria-hidden="true" />
-            Akses aktif
+            {accessUntil ? `Aktif hingga ${accessUntil}` : "Akses aktif"}
           </p>
         </header>
 
@@ -110,7 +114,7 @@ function SidebarContent({
   onToggleTheme,
   onResetData,
   onLogout,
-}: Omit<AppShellProps, "title" | "description" | "children">) {
+}: Omit<AppShellProps, "title" | "description" | "accessUntil" | "children">) {
   return (
     <div className="flex h-full flex-col">
       <div className="flex h-16 shrink-0 items-center border-b border-line px-5">
@@ -197,61 +201,5 @@ function SidebarButton({ onClick, children }: { onClick: () => void; children: R
     >
       {children}
     </button>
-  );
-}
-
-/** Off-canvas navigation for tablet/mobile: traps focus, closes on Escape or backdrop click. */
-function MobileDrawer({ onClose, children }: { onClose: () => void; children: ReactNode }) {
-  const panelRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const panel = panelRef.current;
-    const focusables = () =>
-      Array.from(panel?.querySelectorAll<HTMLElement>("a[href], button:not([disabled])") ?? []);
-    focusables()[0]?.focus();
-
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        onClose();
-        return;
-      }
-      if (e.key !== "Tab") return;
-      const items = focusables();
-      if (items.length === 0) return;
-      const first = items[0];
-      const last = items[items.length - 1];
-      if (e.shiftKey && document.activeElement === first) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && document.activeElement === last) {
-        e.preventDefault();
-        first.focus();
-      }
-    };
-
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.body.style.overflow = previousOverflow;
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [onClose]);
-
-  return (
-    <div className="no-print fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true" aria-label="Menu aplikasi">
-      <div className="absolute inset-0 bg-fg/40" onClick={onClose} aria-hidden="true" />
-      <div ref={panelRef} className="relative h-full w-72 max-w-[85vw] bg-surface shadow-overlay">
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Tutup menu"
-          className="absolute right-3 top-3 z-10 inline-flex size-10 items-center justify-center rounded-md text-fg-muted hover:bg-subtle"
-        >
-          <X className="size-5" aria-hidden="true" />
-        </button>
-        {children}
-      </div>
-    </div>
   );
 }

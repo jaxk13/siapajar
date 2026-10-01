@@ -1,0 +1,56 @@
+# Local development only. Not used in production (production runs PostgreSQL on the VPS).
+#
+# Usage:
+#   cp .env.example .env        # then set POSTGRES_PASSWORD and PGADMIN_DEFAULT_PASSWORD
+#   docker compose up -d        # PostgreSQL (localhost:5432) + pgAdmin (http://localhost:5050)
+#   docker compose down         # stop (data is kept)
+#   docker compose down -v      # stop and DELETE local data (database and pgAdmin settings)
+
+name: siapajar-dev
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: siapajar-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-siapajar}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-siapajar_dev}
+    ports:
+      # Bound to localhost only; the database must not be reachable from the network.
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Database GUI. Inside Docker, pgAdmin reaches PostgreSQL at host "postgres", port 5432 (not localhost).
+  pgadmin:
+    image: dpage/pgadmin4:9
+    container_name: siapajar-pgadmin
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL:-admin@siapajar.dev}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD:?Set PGADMIN_DEFAULT_PASSWORD in .env}
+      # Pre-registers the SIAPAJAR server (see pgadmin/servers.json) on first start.
+      PGADMIN_SERVER_JSON_FILE: /pgadmin4/servers.json
+      # Fewer log lines and no "master password" prompt for a local tool.
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"
+      GUNICORN_ACCESS_LOGFILE: /dev/null
+    ports:
+      # Bound to localhost only; pgAdmin must not be reachable from the network.
+      - "127.0.0.1:${PGADMIN_PORT:-5050}:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+      - ./pgadmin/servers.json:/pgadmin4/servers.json:ro
+
+volumes:
+  postgres_data:
+  pgadmin_data:
