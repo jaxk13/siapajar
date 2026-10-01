@@ -1,25 +1,36 @@
-// Admin CLI for access codes (PRD FR-P03). Run on the server:
+// Admin CLI for access codes (PRD FR-P03). The admin panel (/super-admin) does the same;
+// the CLI remains for server-side use and emergencies.
 //
 //   npm run access:create -- --plan pro --name "Siti Aminah" --whatsapp 081234567890 \
 //        --method qris --proof ./bukti.jpg [--reference TRX123] [--note "..."]
 //   npm run access:create -- --plan pro --test          (code without an order, for testing)
 //   npm run access:list -- [--status active] [--limit 50]
 //   npm run access:disable -- <code | 4-char hint | id> [--reason "..."]
+import { readFileSync } from "fs";
 import { parseArgs } from "util";
-import { closePool } from "../db/pool";
+import { closePool, describeDbError } from "../db/pool";
+import { AppError } from "../lib/apiResponse";
 import type { AccessCodeStatus } from "../repositories/accessCodes.repository";
 import type { PaymentMethod } from "../repositories/orders.repository";
-import { AdminError, createAccessCode, disableAccessCode, listAccessCodes } from "../services/adminAccess.service";
+import { createOrderWithCode, createTestCode, disableCodeByIdentifier, listAccessCodes } from "../services/adminAccess.service";
 
 const METHODS: Record<string, PaymentMethod> = { transfer: "bank_transfer", qris: "qris" };
 const STATUSES: AccessCodeStatus[] = ["unused", "active", "expired", "disabled"];
 
 function fail(message: string): never {
-  throw new AdminError(message);
+  throw new AppError(400, "CLI_ERROR", message);
 }
 
 function formatDate(date: Date | null): string {
-  return date ? date.toLocaleString("id-ID", { dateStyle: "medium", timeStyle: "short" }) : "-";
+  return date ? date.toLocaleString("id-ID", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Jakarta" }) : "-";
+}
+
+function readProof(file: string): Buffer {
+  try {
+    return readFileSync(file);
+  } catch {
+    fail(`File bukti transaksi tidak dapat dibaca: ${file}`);
+  }
 }
 
 async function create(args: string[]) {
@@ -39,46 +50,43 @@ async function create(args: string[]) {
 
   if (!values.plan) fail("Wajib: --plan <slug>, misalnya --plan pro");
 
-  let buyer = null;
-  if (!values.test) {
+  let issued;
+  if (values.test) {
+    issued = await createTestCode({ slug: values.plan }, null);
+  } else {
     const missing = ["name", "whatsapp", "method", "proof"].filter((k) => !values[k as keyof typeof values]);
     if (missing.length > 0) {
       fail(`Data pesanan belum lengkap: --${missing.join(", --")}.\nUntuk kode uji tanpa pesanan, tambahkan --test.`);
     }
     const method = METHODS[values.method!.toLowerCase()];
     if (!method) fail('--method harus "transfer" atau "qris".');
-    buyer = {
-      name: values.name!,
-      whatsapp: values.whatsapp!,
-      paymentMethod: method,
-      proofFile: values.proof!,
-      reference: values.reference ?? null,
-      note: values.note ?? null,
-    };
+    issued = await createOrderWithCode(
+      { slug: values.plan },
+      {
+        name: values.name!,
+        whatsapp: values.whatsapp!,
+        paymentMethod: method,
+        reference: values.reference ?? null,
+        note: values.note ?? null,
+        proof: readProof(values.proof!),
+      },
+      null
+    );
   }
 
-  const created = await createAccessCode(values.plan!, buyer);
-  const devices = created.maxDevices === null ? "tanpa batas" : `${created.maxDevices} perangkat`;
-
+  const devices = issued.maxDevices === null ? "tanpa batas" : `${issued.maxDevices} perangkat`;
   console.log(`
-Kode akses berhasil dibuat${created.orderId ? "" : " (KODE UJI, tanpa pesanan)"}.
+Kode akses berhasil dibuat${issued.orderId ? "" : " (KODE UJI, tanpa pesanan)"}.
 Kode ini hanya ditampilkan SEKALI. Simpan atau langsung kirim ke pembeli.
 
-  Kode      : ${created.code}
-  Paket     : ${created.planName}
-  Masa aktif: ${created.durationDays} hari sejak pertama kali dipakai
-  Perangkat : ${devices}${created.orderId ? `\n  Pesanan   : ${created.orderId}` : ""}
+  Kode      : ${issued.code}
+  Paket     : ${issued.planName}
+  Masa aktif: ${issued.durationDays} hari sejak pertama kali dipakai
+  Perangkat : ${devices}${issued.orderId ? `\n  Pesanan   : ${issued.orderId}` : ""}
 
 Pesan untuk dikirim lewat WhatsApp:
 ----------------------------------------------------------------
-Terima kasih, pembayaran Anda sudah kami terima.
-
-Kode akses SIAPAJAR (paket ${created.planName}):
-${created.code}
-
-Cara masuk: buka siapajar.id/masuk lalu masukkan kode di atas.
-Masa aktif ${created.durationDays} hari dihitung sejak kode pertama kali dipakai.
-Kode dapat digunakan di ${devices}. Mohon tidak membagikan kode ini.
+${issued.message}
 ----------------------------------------------------------------`);
 }
 
@@ -120,7 +128,7 @@ async function disable(args: string[]) {
   const identifier = positionals[0];
   if (!identifier) fail("Wajib: kode akses, 4 karakter terakhirnya, atau id. Contoh: npm run access:disable -- 2HTB");
 
-  const result = await disableAccessCode(identifier, values.reason ?? null);
+  const result = await disableCodeByIdentifier(identifier, values.reason ?? null);
   console.log(`Kode ...${result.hint} dinonaktifkan. ${result.revokedSessions} sesi aktif diakhiri.`);
 }
 
@@ -140,12 +148,12 @@ async function main() {
 
 main()
   .catch((err) => {
-    if (err instanceof AdminError) {
+    if (err instanceof AppError) {
       console.error(`\n${err.message}\n`);
     } else if (err instanceof TypeError && "code" in err && String(err.code).startsWith("ERR_PARSE_ARGS")) {
       console.error(`\n${err.message}\n`);
     } else {
-      console.error("\nTerjadi kesalahan:", err instanceof Error ? err.message : err, "\n");
+      console.error("\nTerjadi kesalahan:", describeDbError(err), "\n");
     }
     process.exitCode = 1;
   })

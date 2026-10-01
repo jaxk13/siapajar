@@ -4,14 +4,14 @@
 
 PostgreSQL is the server-side database for MVP data that requires persistence beyond the browser.
 
-- Local development: PostgreSQL 17 via `docker-compose.dev.yml` (see `DEVELOPMENT.md` §15a).
+- Local development: PostgreSQL 17 via `docker-compose.yml` (see `DEVELOPMENT.md` §15a).
 - Production: PostgreSQL on the VPS, not exposed to the public internet.
 
 The database is not the source of truth for the active question draft in MVP (ADR-002).
 
 **ERD:** [`docs/ERD.dbml`](ERD.dbml) is the diagram source. Paste it into https://dbdiagram.io/d to view it. Keep that file and this document in sync.
 
-Status: implemented. Migration `server/db/migrations/001_initial_schema.sql`; seeder `server/db/seed.ts` (plans Instan and Pro).
+Status: implemented. Migrations `server/db/migrations/001_initial_schema.sql` (core) and `002_admin_panel.sql` (admin team); seeder `server/db/seed.ts` (plans Instan and Pro).
 
 ## 2. Overview
 
@@ -20,6 +20,10 @@ plans ──< orders ──── access_codes ──< sessions
   │                      │   ▲           │
   └──────────────────────┘   │           │
                          usage_logs ─────┘
+
+users ──< user_sessions        (admin team)
+users ──< audit_logs
+users ──< orders.created_by, access_codes.created_by / disabled_by
 
 system_settings (standalone key/value)
 ```
@@ -60,7 +64,7 @@ Purpose: products shown on the pricing section of the landing page (PRD FR-P01).
 
 ### orders
 
-Purpose: purchase records (PRD FR-P02, FR-P05). In MVP, the admin creates the order via CLI after confirming a WhatsApp payment.
+Purpose: purchase records (PRD FR-P02, FR-P05). In MVP, an admin records the order in the admin panel (`/super-admin/pesanan/baru`, or the CLI as a fallback) after confirming a WhatsApp payment.
 
 | Column | Type | Notes |
 |---|---|---|
@@ -153,6 +157,50 @@ Purpose: server-side configuration that should not be hard-coded.
 | updated_at | timestamptz | |
 
 Never store secrets (API keys, peppers, passwords) in this table; secrets belong in environment variables.
+
+### users (admin team)
+
+Purpose: accounts for the admin panel `/super-admin` (PRD FR-ADM, ADR-016). **Teachers never have accounts.** There is no registration.
+
+| Column | Type | Notes |
+|---|---|---|
+| id | uuid PK | |
+| name | varchar(100) | |
+| email | varchar(254) unique | Lowercase; used to sign in |
+| password_hash | text | `scrypt$N$r$p$salt$hash` (Node built-in scrypt) |
+| role | user_role | `super_admin` or `admin` |
+| is_active | boolean | Inactive accounts cannot sign in; their sessions are revoked |
+| must_change_password | boolean | `true` for new/reset accounts (temporary password) |
+| last_login_at | timestamptz null | |
+| created_by | uuid FK → users null | `NULL` = first super admin from the CLI |
+| created_at, updated_at | timestamptz | |
+
+At least one active `super_admin` must always exist (enforced in `adminUsers.service`).
+
+### user_sessions
+
+Purpose: admin sessions, separate from teacher `sessions`. Cookie `siapajar_admin` (`HttpOnly`, `SameSite=Strict`, `Path=/api/super-admin`), valid 8 hours. Columns mirror `sessions`: `token_hash`, `user_agent`, `last_seen_at`, `expires_at`, `revoked_at`.
+
+### audit_logs
+
+Purpose: who did what in the admin panel.
+
+| Column | Type | Notes |
+|---|---|---|
+| id | bigint identity PK | |
+| user_id | uuid FK → users null | `NULL` = action from the CLI |
+| action | varchar(50) | `login`, `order.create`, `code.create_test`, `code.disable`, `code.regenerate`, `plan.update`, `settings.update`, `user.create`, `user.update`, `user.reset_password`, `user.change_password` |
+| target_type, target_id | null | e.g. `order` + order id |
+| metadata | jsonb null | Small context (code hint, reason, before/after). Never full codes or passwords |
+| created_at | timestamptz | |
+
+Also added by migration 002: `orders.created_by`, `access_codes.created_by`, `access_codes.disabled_by` (FK → users, `NULL` = CLI).
+
+### Seed data
+
+`npm run db:seed` only **adds missing** plans and the `admin_whatsapp` setting, so changes made in the admin panel are kept. `npm run db:seed -- --overwrite` resets them to the values in `server/db/seeds/plans.ts` and `ADMIN_WHATSAPP`.
+
+Users: `npm run db:seed` (or `npm run db:seed:admin` for this step only) creates one `super_admin` from `SEED_ADMIN_NAME` / `SEED_ADMIN_EMAIL` in `.env` (`server/db/seeds/users.ts`). No email or password is stored in the repository. Without `SEED_ADMIN_PASSWORD`, a temporary password is printed once and `must_change_password = true`; with it (development only, refused when `NODE_ENV=production`), the given password is used. Existing emails are never modified. The creation is written to `audit_logs` with `metadata.source = "seeder"`.
 
 ## 4. Access Code and Session Security
 

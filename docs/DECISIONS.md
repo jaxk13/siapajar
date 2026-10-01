@@ -74,7 +74,9 @@ This keeps MVP focused on the core assessment workflow.
 
 ### Consequence
 
-Account/cloud features remain deferred.
+Account/cloud features remain deferred for teachers.
+
+Admin team accounts for `/super-admin` (ADR-016) are separate and do not change this decision: teachers still never register or sign in with a password.
 
 ---
 
@@ -225,7 +227,7 @@ Automatic payment (Skaler webhook) is deferred (PRD FR-P06).
 
 ### Consequence
 
-- No payment webhook or web admin panel in MVP.
+- No payment webhook in MVP. (The "no web admin panel" part was superseded by ADR-016.)
 - `orders.provider_ref` stays in the schema so automatic payment can be added later without redesign.
 - Open: WhatsApp number, payment method, whether buyer data is stored.
 
@@ -301,3 +303,31 @@ PRD FR-C03 and ADR-001: Direct AI is not an MVP dependency. With paid access cod
 ### Consequence
 
 The MVP AI workflow is external AI only. Direct AI or BYOK can return later through `/api/ai/generate` and the provider abstraction.
+
+---
+
+## ADR-016 — Web Admin Panel for the Admin Team
+
+Status: Accepted (PRD v2.2.0). Supersedes the "no web admin panel" part of ADR-011.
+
+### Decision
+
+A web admin panel at `/super-admin` replaces the CLI as the main tool for orders and access codes.
+
+- Sign-in with email and password; **no registration**. Accounts live in the `users` table (admin team only).
+- Roles: `super_admin` (everything, including team, plans, settings, activity) and `admin` (orders and codes).
+- First super admin: `npm run user:create`. Afterwards, super admins add members in the panel.
+- New or reset accounts get a temporary password that must be changed on first sign-in.
+- Every admin action is written to `audit_logs`.
+
+### Reason
+
+The admin team serves buyers from phones, tablets, and laptops. The CLI requires SSH access to the server, which would also expose the database and secrets to every admin, and proof-of-payment files arrive on the phone.
+
+### Consequence
+
+- New tables: `users`, `user_sessions`, `audit_logs`; `created_by`/`disabled_by` columns on `orders` and `access_codes`.
+- Admin sessions are separate from teacher sessions: cookie `siapajar_admin`, `SameSite=Strict`, path `/api/super-admin`, 8 hours.
+- Passwords use Node's built-in `scrypt` (no new dependency).
+- Plans and the admin WhatsApp number are edited in the panel; `npm run db:seed` no longer overwrites them unless `--overwrite` is passed.
+- The CLI remains for the first account and emergencies.

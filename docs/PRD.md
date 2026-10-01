@@ -7,7 +7,7 @@ Keterangan
 Nama Produk
 SIAPAJAR.id — Sistem Asisten Pendidik Penulisan Naskah Soal & Asesmen Terstandar
 Versi Dokumen
-2.1.0
+2.2.0
 Status
 MVP Development Specification
 Target Pengguna
@@ -21,7 +21,9 @@ PostgreSQL self-hosted
 Infrastructure
 VPS Linux + Nginx + PM2
 Access System
-Access Code + Temporary Session
+Access Code + Temporary Session (guru, tanpa akun)
+Admin Panel
+/super-admin — login email/password tim admin, tanpa registrasi (FR-ADM)
 AI Strategy
 External AI First + Optional BYOK/Direct API
 Storage
@@ -138,6 +140,7 @@ Access Code
 Session Management
 Usage Logging
 Pricing & Pembelian (manual via WhatsApp pada MVP)
+Panel Admin untuk tim admin (FR-ADM)
 Monitoring
 
 7. User Journey Utama
@@ -506,12 +509,18 @@ untuk endpoint yang dilindungi.
 20. PostgreSQL
 Database digunakan untuk data server-side yang benar-benar diperlukan.
 Tabel inti MVP:
+plans
 access_codes
 sessions
 orders
 usage_logs
 system_settings
+Tabel panel admin (FR-ADM):
+users (akun tim admin, bukan guru)
+user_sessions
+audit_logs
 Draft soal tidak wajib masuk database pada MVP.
+Rancangan lengkap: docs/DATABASE.md dan docs/ERD.dbml.
 
 21. Pricing, Pembayaran & Pengiriman Kode Akses
 Perubahan v2.1.0: pada MVP, kode akses dikirim secara manual oleh admin melalui WhatsApp. Integrasi pembayaran otomatis (Skaler + webhook) ditunda.
@@ -549,8 +558,8 @@ Nomor WhatsApp admin ditampilkan di halaman utama, untuk pertanyaan seputar SIAP
 Metode pembayaran: transfer bank dan QRIS, dikonfirmasi manual oleh admin.
 
 FR-P03 — Pembuatan Kode Akses oleh Admin
-Admin membuat, melihat, dan menonaktifkan kode akses melalui perintah server (CLI).
-Panel admin berbasis web tidak termasuk MVP.
+Tim admin membuat, melihat, mengganti, dan menonaktifkan kode akses melalui Panel Admin (FR-ADM, /super-admin).
+Perintah server (CLI) tetap tersedia sebagai cadangan.
 Setiap kode:
 unik dan dibuat secara acak oleh server;
 hanya ditampilkan satu kali saat dibuat;
@@ -568,6 +577,30 @@ Setiap pembelian dicatat pada tabel orders oleh admin saat membuat kode akses.
 Data yang disimpan: nama pembeli, nomor WhatsApp, metode pembayaran, nomor referensi (jika ada), dan file bukti transaksi.
 File bukti transaksi disimpan di server (bukan di database) dan tidak dapat diakses publik.
 Data pembeli adalah data pribadi dan tidak boleh muncul di log atau notifikasi.
+
+FR-ADM — Panel Admin
+Perubahan v2.2.0: panel admin berbasis web dibuat untuk tim admin, karena pelayanan dilakukan dari HP, tablet, dan laptop.
+Alamat: /super-admin. Masuk: /super-admin/masuk dengan email dan password.
+Tidak ada registrasi. Akun tim (tabel users) dibuat oleh super admin di panel, atau akun pertama melalui CLI.
+Akun baru atau yang direset mendapat password sementara yang wajib diganti saat pertama masuk.
+Peran:
+super_admin — semua fitur, termasuk tim admin, paket & harga, pengaturan, dan riwayat aktivitas;
+admin — pesanan dan kode akses.
+Fitur:
+ringkasan (pesanan hari ini, pendapatan bulan ini, kode aktif/belum dipakai);
+membuat pesanan: data pembeli, metode bayar, nomor referensi, unggah bukti transaksi (foto atau PDF, maks. 5 MB), lalu kode akses dibuat otomatis dan dapat dikirim langsung lewat WhatsApp;
+daftar dan pencarian pesanan (nama, nomor WA, 4 karakter terakhir kode) serta detailnya (bukti transaksi, perangkat aktif);
+daftar kode akses dengan filter status;
+ganti kode (jika pembeli kehilangan kode; masa aktif tetap) dan nonaktifkan kode (dengan alasan);
+kode uji tanpa pesanan (super admin);
+paket & harga, nomor WhatsApp admin (super admin);
+tim admin: tambah, ubah peran, nonaktifkan, reset password (super admin);
+riwayat aktivitas: siapa melakukan apa dan kapan (super admin).
+Keamanan:
+password di-hash (scrypt); sesi admin terpisah dari sesi guru, berlaku 8 jam, cookie HttpOnly + SameSite=Strict;
+percobaan masuk dibatasi; permintaan dari situs lain ditolak;
+bukti transaksi hanya dapat dilihat admin yang masuk.
+Tidak termasuk: dashboard statistik/grafik, multi-level peran tambahan, edit konten landing page.
 
 FR-P06 — Pembayaran Otomatis (Ditunda)
 Integrasi otomatis dengan payment provider Skaler (webhook → pembuatan kode otomatis) ditunda setelah MVP.
@@ -696,6 +729,17 @@ POST /api/payment/webhook   (ditunda, lihat FR-P06)
 POST /api/usage/event
 
 GET  /api/system/status
+
+Panel admin (FR-ADM), semua di bawah /api/super-admin:
+POST /auth/login, POST /auth/logout, GET /me, POST /me/password
+GET  /overview
+GET/POST /orders, GET /orders/:id, GET /orders/:id/proof
+GET  /codes, POST /codes/:id/regenerate, POST /codes/:id/disable, POST /codes/test
+GET/PATCH /plans, GET/PUT /settings
+GET/POST/PATCH /users, POST /users/:id/reset-password
+GET  /activity
+Detail: docs/API.md §4A.
+
 Jika BYOK/direct AI ditambahkan:
 POST /api/ai/generate
 AI endpoint harus dipisahkan dari core editor logic.
@@ -788,7 +832,7 @@ Tanpa membutuhkan akun pengguna.
 
 31. Tidak Termasuk MVP
 Fitur berikut bukan dependency launch:
-sistem akun lengkap;
+sistem akun lengkap untuk guru (akun tim admin pada Panel Admin bukan bagian dari ini, lihat FR-ADM);
 Google OAuth;
 forgot password;
 cloud document library;
@@ -823,6 +867,7 @@ Word export;
 Print/PDF;
 PostgreSQL;
 pricing & pembelian manual via WhatsApp;
+panel admin (/super-admin);
 Telegram monitoring.
 
 Phase 2 — Automation
@@ -911,6 +956,10 @@ Question Editing
 Document Generation
 
 36. Riwayat Perubahan
+2.2.0
+Seluruh dokumen (README, docs/, src/README.md, server/README.md, AGENTS.md, CLAUDE.md) disinkronkan dengan Panel Admin; folder Logbook/ ditambahkan untuk mencatat setiap perubahan.
+Ditambahkan Panel Admin di /super-admin (FR-ADM) dengan login tim (tabel users), tanpa registrasi; peran super_admin dan admin.
+FR-P03: pembuatan kode akses kini melalui panel admin; CLI tetap sebagai cadangan.
 2.1.0
 Pembayaran MVP diubah menjadi manual: admin mengirim kode akses melalui WhatsApp (FR-P02).
 Ditambahkan halaman harga dengan data paket dari backend (FR-P01) dan endpoint GET /api/plans.

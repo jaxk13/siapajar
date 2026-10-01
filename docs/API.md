@@ -149,16 +149,13 @@ Success:
 - `contact` is `null` until `admin_whatsapp` is set (via `ADMIN_WHATSAPP` and `npm run db:seed`).
 - The frontend adds the prefilled message (plan name) to `whatsappUrl`.
 
-### Admin operations (CLI, not HTTP)
+### Admin operations
 
-In MVP, the admin creates and manages access codes from the server with CLI commands (PRD FR-P03), not through an HTTP API:
+The admin team uses the web panel (`/super-admin`, API below). The CLI remains for the first account and emergencies:
 
-- `npm run access:create -- --plan <slug> --name <buyer> --whatsapp <number> --method transfer|qris --proof <file> [--reference <ref>] [--note <text>]` — records a fulfilled order, stores the proof file, creates the code, and prints it once with a ready-to-send WhatsApp message.
-- `npm run access:create -- --plan <slug> --test` — code without an order, for testing.
-- `npm run access:list -- [--status unused|active|expired|disabled] [--limit 50]` — codes with status, plan, last 4 characters, buyer name, active devices, dates.
-- `npm run access:disable -- <code | last 4 characters | id> [--reason <text>]` — disables the code and signs out all its sessions.
-
-A web admin panel is not part of MVP.
+- `npm run user:create -- --name <name> --email <email> [--role super_admin|admin]` — create an admin account (temporary password shown once).
+- `npm run user:reset-password -- --email <email>`
+- `npm run access:create | access:list | access:disable` — same operations as the panel.
 
 ### POST /api/payment/webhook
 
@@ -174,6 +171,44 @@ Requirements:
 - do not expose payment secrets in logs.
 
 Provider-specific details should be documented when the actual provider integration is implemented.
+
+## 4A. Admin Panel API (`/api/super-admin`)
+
+Status: implemented (PRD FR-ADM, ADR-016). Same envelope as §1.
+
+Security for every admin endpoint:
+
+- Cookie `siapajar_admin`: `HttpOnly`, `Secure` in production, `SameSite=Strict`, `Path=/api/super-admin`, 8 hours.
+- State-changing requests must be JSON and same-origin (`403 FORBIDDEN` otherwise).
+- `401 ADMIN_SESSION_INVALID` when not signed in or the account is inactive.
+- `403 PASSWORD_CHANGE_REQUIRED` until a temporary password is changed (only `/me` and `/me/password` are allowed).
+- `403 FORBIDDEN` for super-admin-only endpoints when the role is `admin`.
+
+| Method | Path | Role | Purpose |
+|---|---|---|---|
+| POST | `/auth/login` | public, rate limited 5/min/IP | `{ email, password }` → user + cookie. Wrong email or password → `401 INVALID_CREDENTIALS` (same message for both) |
+| POST | `/auth/logout` | any | Ends the admin session |
+| GET | `/me` | signed in (password change allowed) | Current user |
+| POST | `/me/password` | signed in (password change allowed) | `{ currentPassword, newPassword }`; min. 10 characters with letters and digits; signs out other devices |
+| GET | `/overview` | admin | Orders today/month, revenue this month, active/unused/expiring codes, 5 recent orders |
+| GET | `/orders?search=&page=` | admin | Search by buyer name, WhatsApp number, or last 4 code characters |
+| POST | `/orders` | admin | `{ planId, buyerName, buyerWhatsapp, paymentMethod, paymentReference?, note?, proof: { dataBase64 } }` → `201 { issued }` (code shown once, WhatsApp message, buyer `wa.me` link). Proof: JPG/PNG/WEBP/PDF detected by content, max 5 MB (request limit 7 MB) |
+| GET | `/orders/:id` | admin | Order, code, active devices |
+| GET | `/orders/:id/proof` | admin | Proof file (`Cache-Control: private, no-store`) |
+| GET | `/codes?status=&search=&page=` | admin | All codes including test codes |
+| GET | `/codes/:id` | admin | Code and active devices |
+| POST | `/codes/:id/regenerate` | admin | New secret for the same code; old code stops working, devices signed out, expiry kept → `{ issued }` |
+| POST | `/codes/:id/disable` | admin | `{ reason }` (required); devices signed out |
+| POST | `/codes/test` | super_admin | `{ planId }` → test code without an order |
+| GET | `/plans` | admin | All plans, including inactive |
+| PATCH | `/plans/:id` | super_admin | `{ name, description, priceIdr, durationDays, maxDevices, isActive }` |
+| GET / PUT | `/settings` | super_admin | `{ adminWhatsapp }` (empty = hide) |
+| GET / POST | `/users` | super_admin | List / create `{ name, email, role }` → temporary password shown once |
+| PATCH | `/users/:id` | super_admin | `{ name, role, isActive }`; cannot change own role/status; at least one active super admin must remain |
+| POST | `/users/:id/reset-password` | super_admin | New temporary password; user signed out everywhere |
+| GET | `/activity?page=` | super_admin | Audit log |
+
+Every state-changing action is written to `audit_logs`.
 
 ## 5. Usage
 

@@ -1,0 +1,13 @@
+{
+  "Servers": {
+    "1": {
+      "Name": "SIAPAJAR (local)",
+      "Group": "Servers",
+      "Host": "postgres",
+      "Port": 5432,
+      "MaintenanceDB": "siapajar_dev",
+      "Username": "siapajar",
+      "SSLMode": "prefer"
+    }
+  }
+}

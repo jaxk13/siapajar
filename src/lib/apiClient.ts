@@ -8,7 +8,10 @@ export type ApiResult<T> =
 const NETWORK_ERROR = "Tidak dapat terhubung ke server. Periksa koneksi internet Anda, lalu coba lagi.";
 const UNKNOWN_ERROR = "Terjadi kendala pada server. Silakan coba beberapa saat lagi.";
 
-export async function apiRequest<T>(path: string, init: { method?: "GET" | "POST"; body?: unknown } = {}): Promise<ApiResult<T>> {
+export async function apiRequest<T>(
+  path: string,
+  init: { method?: "GET" | "POST" | "PATCH" | "PUT"; body?: unknown } = {}
+): Promise<ApiResult<T>> {
   let response: Response;
   try {
     response = await fetch(`/api${path}`, {

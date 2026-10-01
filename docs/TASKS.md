@@ -157,6 +157,21 @@ Do NOT implement Direct AI as part of this phase.
 
 The exact implementation must follow the provider's actual API/webhook capabilities.
 
+## Phase 10A — Admin Panel (`/super-admin`, PRD FR-ADM, ADR-016)
+
+- [x] Migration `002_admin_panel` (users, user_sessions, audit_logs, created_by/disabled_by)
+- [x] Admin login (email + password, no registration), 8-hour session, rate limiting, same-origin check
+- [x] First super admin via CLI (`npm run user:create`), temporary password must be changed
+- [x] Roles: super_admin and admin
+- [x] Overview
+- [x] Create order with proof-of-payment upload, issue code, send via WhatsApp
+- [x] Order list, search, detail, proof viewer, active devices
+- [x] Access code list, filter, regenerate, disable, test codes
+- [x] Plans & prices, admin WhatsApp setting
+- [x] Team management (create, role, deactivate, reset password)
+- [x] Activity log
+- [x] Responsive: phone, tablet, laptop
+
 ## Phase 11 — Telegram Monitoring
 
 - [ ] Notification service

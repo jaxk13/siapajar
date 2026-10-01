@@ -2,7 +2,7 @@
 // Usage: npm run db:migrate
 import { readdirSync, readFileSync } from "fs";
 import path from "path";
-import { closePool, getPool, withTransaction } from "./pool";
+import { closePool, describeDbError, getPool, withTransaction } from "./pool";
 
 const MIGRATIONS_DIR = path.resolve("server/db/migrations");
 
@@ -39,7 +39,7 @@ async function migrate() {
 
 migrate()
   .catch((err) => {
-    console.error("Migration failed:", err instanceof Error ? err.message : err);
+    console.error("Migration failed:", describeDbError(err));
     process.exitCode = 1;
   })
   .finally(closePool);

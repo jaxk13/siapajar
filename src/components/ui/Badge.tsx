@@ -1,11 +1,12 @@
 import type { ReactNode } from "react";
 
-type BadgeTone = "neutral" | "brand" | "outline";
+type BadgeTone = "neutral" | "brand" | "outline" | "danger";
 
 const TONES: Record<BadgeTone, string> = {
   neutral: "bg-subtle text-fg-muted",
   brand: "bg-primary-soft text-primary-text",
   outline: "border border-line-strong text-fg-muted",
+  danger: "bg-danger-soft text-danger",
 };
 
 interface BadgeProps {

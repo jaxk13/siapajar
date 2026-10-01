@@ -80,7 +80,9 @@ Responsible for:
 - temporary sessions;
 - server-side validation;
 - usage logging;
-- payment webhook;
+- plans for the pricing section;
+- admin panel API (`/api/super-admin`): admin team login, orders, access codes, plans, settings, team, audit log;
+- payment webhook (deferred, PRD FR-P06);
 - system status;
 - future provider/API orchestration.
 
@@ -138,6 +140,8 @@ src/
   lib/router.tsx        minimal History API router
   lib/apiClient.ts      single API boundary (envelope handling, user-facing errors)
   pages/                LandingPage, AccessPage, AppPage, AppHome, NotFoundPage
+  pages/admin/          admin panel pages + AdminRoutes (guards)
+  features/admin/       admin API client, AdminProvider, shared admin components
   types/
 
 server/
@@ -153,6 +157,10 @@ server/
   db/                   pool, migrate.ts, seed.ts, migrations/*.sql, seeds/
   scripts/access-cli.ts admin CLI (create / list / disable access codes)
 
+### Admin panel
+
+The admin team works in `/super-admin` with its own login (table `users`, no registration), its own session cookie (`siapajar_admin`, `SameSite=Strict`, path `/api/super-admin`) and roles `super_admin` / `admin`. The admin API is `/api/super-admin/*` (`server/routes/superAdmin.ts`). Teacher access and admin access never share sessions.
+
 ### Frontend routes
 
 | Path | Page | Access |
@@ -161,6 +169,7 @@ server/
 | `/masuk` | Access code entry | public (redirects to `/app` when access is active) |
 | `/app` | Application home | requires access |
 | `/app/parameter`, `/app/jalankan-ai`, `/app/impor`, `/app/editor`, `/app/kop`, `/app/export` | Existing workflow screens inside the app shell | requires access |
+| `/super-admin/*` | Admin panel (orders, codes, plans, team, settings, activity) | admin team login (ADR-016) |
 | anything else | Not found | public |
 
 Routing uses the History API without a router dependency. Express serves `index.html` for every non-`/api` path, so deep links and refresh work.
@@ -244,11 +253,18 @@ PostgreSQL stores server-side data that is actually needed.
 
 MVP core tables:
 
+- plans
 - access_codes
 - sessions
 - orders
 - usage_logs
 - system_settings
+
+Admin panel tables (ADR-016):
+
+- users (admin team only)
+- user_sessions
+- audit_logs
 
 Draft question content is not required to be stored in PostgreSQL for MVP.
 

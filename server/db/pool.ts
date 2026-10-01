@@ -38,6 +38,17 @@ export async function withTransaction<T>(fn: (client: pg.PoolClient) => Promise<
   }
 }
 
+/** Readable message for CLI output; connection failures arrive as an AggregateError with an empty message. */
+export function describeDbError(err: unknown): string {
+  if (err instanceof AggregateError && err.errors.length > 0) err = err.errors[0];
+  const code = (err as { code?: string })?.code;
+  if (code === "ECONNREFUSED") return "Database tidak dapat dihubungi. Pastikan PostgreSQL berjalan (docker compose up -d).";
+  if (code === "28P01") return "Password database salah. Periksa DATABASE_URL di .env.";
+  if (code === "3D000") return "Database tidak ditemukan. Periksa nama database di DATABASE_URL.";
+  if (err instanceof Error && err.message) return err.message;
+  return String(code ?? err);
+}
+
 export async function closePool(): Promise<void> {
   if (pool) {
     await pool.end();

@@ -1,116 +1,236 @@
-// Admin operations used by the CLI (PRD FR-P03, FR-P05). Not exposed over HTTP.
-import { copyFileSync, existsSync, mkdirSync, statSync, unlinkSync } from "fs";
-import path from "path";
-import { env } from "../config/env";
-import { getPool, withTransaction } from "../db/pool";
+// Orders and access codes for the admin team (PRD FR-P03, FR-P05).
+// Shared by the admin panel (/api/super-admin) and the CLI (scripts/access-cli.ts).
+import { getPool, withTransaction, type Queryable } from "../db/pool";
+import { AppError } from "../lib/apiResponse";
 import { accessCodeHint, generateAccessCode, hashAccessCode, normalizeAccessCode } from "../lib/accessCode";
-import { normalizeWhatsapp } from "../lib/whatsapp";
+import { buildCodeMessage } from "../lib/codeMessage";
+import { proofProblem, removeProof, saveProof } from "../lib/paymentProof";
+import { normalizeWhatsapp, whatsappUrl } from "../lib/whatsapp";
 import * as accessCodes from "../repositories/accessCodes.repository";
+import { logAction } from "../repositories/audit.repository";
 import * as orders from "../repositories/orders.repository";
-import { findPlanBySlug, listAllPlans } from "../repositories/plans.repository";
+import { findPlanById, findPlanBySlug, listAllPlans, type PlanRow } from "../repositories/plans.repository";
 import * as sessions from "../repositories/sessions.repository";
 
-const PROOF_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".webp", ".pdf"]);
-const PROOF_MAX_BYTES = 5 * 1024 * 1024;
+function notFound(message = "Data tidak ditemukan."): never {
+  throw new AppError(404, "NOT_FOUND", message);
+}
 
-export class AdminError extends Error {}
+function invalid(message: string): never {
+  throw new AppError(400, "VALIDATION_ERROR", message);
+}
 
 export interface BuyerInput {
   name: string;
   whatsapp: string;
   paymentMethod: orders.PaymentMethod;
-  proofFile: string;
   reference: string | null;
   note: string | null;
+  proof: Buffer;
 }
 
-export interface CreatedCode {
+export interface IssuedCode {
+  codeId: string;
   code: string;
   planName: string;
   durationDays: number;
   maxDevices: number | null;
   orderId: string | null;
+  message: string;
+  /** wa.me link to the buyer with the message prefilled (orders only). */
+  buyerWhatsappUrl: string | null;
 }
 
-function validateProofFile(file: string): string {
-  const resolved = path.resolve(file);
-  if (!existsSync(resolved)) throw new AdminError(`File bukti transaksi tidak ditemukan: ${file}`);
-  const ext = path.extname(resolved).toLowerCase();
-  if (!PROOF_EXTENSIONS.has(ext)) throw new AdminError("Bukti transaksi harus berupa JPG, PNG, WEBP, atau PDF.");
-  if (statSync(resolved).size > PROOF_MAX_BYTES) throw new AdminError("Ukuran bukti transaksi maksimal 5 MB.");
-  return resolved;
+async function resolvePlan(db: Queryable, plan: { id?: string; slug?: string }): Promise<PlanRow> {
+  const row = plan.id ? await findPlanById(db, plan.id) : plan.slug ? await findPlanBySlug(db, plan.slug) : null;
+  if (!row) {
+    const slugs = (await listAllPlans(db)).map((p) => p.slug).join(", ");
+    notFound(`Paket tidak ditemukan. Pilihan: ${slugs || "(belum ada paket, jalankan npm run db:seed)"}`);
+  }
+  return row;
 }
 
-export async function createAccessCode(planSlug: string, buyer: BuyerInput | null): Promise<CreatedCode> {
-  const plan = await findPlanBySlug(getPool(), planSlug);
-  if (!plan) {
-    const slugs = (await listAllPlans(getPool())).map((p) => p.slug).join(", ");
-    throw new AdminError(`Paket "${planSlug}" tidak ada. Pilihan: ${slugs || "(belum ada paket, jalankan npm run db:seed)"}`);
+/** Generates a code whose hash does not exist yet. */
+async function newUniqueCode(db: Queryable): Promise<{ code: string; hash: string; hint: string }> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const code = generateAccessCode();
+    const normalized = normalizeAccessCode(code)!;
+    const hash = hashAccessCode(normalized);
+    if (!(await accessCodes.findByHash(db, hash))) return { code, hash, hint: accessCodeHint(normalized) };
   }
+  throw new AppError(500, "INTERNAL_ERROR", "Gagal membuat kode unik. Coba lagi.");
+}
 
-  let whatsapp: string | null = null;
-  let proofSource: string | null = null;
-  if (buyer) {
-    if (!buyer.name.trim()) throw new AdminError("Nama pembeli wajib diisi.");
-    whatsapp = normalizeWhatsapp(buyer.whatsapp);
-    if (!whatsapp) throw new AdminError("Nomor WhatsApp pembeli tidak valid. Contoh: 081234567890");
-    proofSource = validateProofFile(buyer.proofFile);
-  }
+/** Records a paid order, stores the proof, and issues the buyer's access code. */
+export async function createOrderWithCode(
+  plan: { id?: string; slug?: string },
+  buyer: BuyerInput,
+  createdBy: string | null
+): Promise<IssuedCode> {
+  const name = buyer.name.trim();
+  if (!name) invalid("Nama pembeli wajib diisi.");
+  const whatsapp = normalizeWhatsapp(buyer.whatsapp);
+  if (!whatsapp) invalid("Nomor WhatsApp pembeli tidak valid. Contoh: 081234567890");
+  const problem = proofProblem(buyer.proof);
+  if (problem) invalid(problem);
 
-  let copiedProof: string | null = null;
+  let savedProof: string | null = null;
   try {
     return await withTransaction(async (client) => {
-      let orderId: string | null = null;
-      if (buyer && whatsapp && proofSource) {
-        const order = await orders.insertFulfilled(client, {
-          planId: plan.id,
-          amountIdr: plan.price_idr,
-          buyerName: buyer.name.trim(),
-          buyerWhatsapp: whatsapp,
-          paymentMethod: buyer.paymentMethod,
-          paymentReference: buyer.reference,
-          note: buyer.note,
-        });
-        orderId = order.id;
+      const planRow = await resolvePlan(client, plan);
+      const order = await orders.insertFulfilled(client, {
+        planId: planRow.id,
+        amountIdr: planRow.price_idr,
+        buyerName: name,
+        buyerWhatsapp: whatsapp,
+        paymentMethod: buyer.paymentMethod,
+        paymentReference: buyer.reference,
+        note: buyer.note,
+        createdBy,
+      });
+      savedProof = saveProof(order.id, buyer.proof);
+      await orders.setPaymentProofPath(client, order.id, savedProof);
 
-        mkdirSync(env.paymentProofDir, { recursive: true });
-        const fileName = `${order.id}${path.extname(proofSource).toLowerCase()}`;
-        copiedProof = path.join(env.paymentProofDir, fileName);
-        copyFileSync(proofSource, copiedProof);
-        await orders.setPaymentProofPath(client, order.id, fileName);
-      }
+      const secret = await newUniqueCode(client);
+      const code = await accessCodes.insert(client, {
+        codeHash: secret.hash,
+        codeHint: secret.hint,
+        planId: planRow.id,
+        orderId: order.id,
+        durationDays: planRow.duration_days,
+        maxDevices: planRow.max_devices,
+        createdBy,
+      });
+      await logAction(client, {
+        userId: createdBy,
+        action: "order.create",
+        targetType: "order",
+        targetId: order.id,
+        metadata: { plan: planRow.slug, codeHint: secret.hint },
+      });
 
-      // Retry on the (practically impossible) hash collision.
-      for (let attempt = 0; attempt < 3; attempt++) {
-        const code = generateAccessCode();
-        const normalized = normalizeAccessCode(code)!;
-        const codeHash = hashAccessCode(normalized);
-        if (await accessCodes.findByHash(client, codeHash)) continue;
-
-        await accessCodes.insert(client, {
-          codeHash,
-          codeHint: accessCodeHint(normalized),
-          planId: plan.id,
-          orderId,
-          durationDays: plan.duration_days,
-          maxDevices: plan.max_devices,
-        });
-        return { code, planName: plan.name, durationDays: plan.duration_days, maxDevices: plan.max_devices, orderId };
-      }
-      throw new AdminError("Gagal membuat kode unik. Coba lagi.");
+      const message = buildCodeMessage({
+        code: secret.code,
+        planName: planRow.name,
+        durationDays: planRow.duration_days,
+        maxDevices: planRow.max_devices,
+      });
+      return {
+        codeId: code.id,
+        code: secret.code,
+        planName: planRow.name,
+        durationDays: planRow.duration_days,
+        maxDevices: planRow.max_devices,
+        orderId: order.id,
+        message,
+        buyerWhatsappUrl: whatsappUrl(whatsapp, message),
+      };
     });
   } catch (err) {
-    if (copiedProof && existsSync(copiedProof)) unlinkSync(copiedProof);
+    if (savedProof) removeProof(savedProof);
     throw err;
   }
 }
 
-export async function listAccessCodes(options: { status?: accessCodes.AccessCodeStatus; limit: number }) {
-  return accessCodes.list(getPool(), options);
+/** Free code without an order, for testing or demos. */
+export async function createTestCode(plan: { id?: string; slug?: string }, createdBy: string | null): Promise<IssuedCode> {
+  return withTransaction(async (client) => {
+    const planRow = await resolvePlan(client, plan);
+    const secret = await newUniqueCode(client);
+    const code = await accessCodes.insert(client, {
+      codeHash: secret.hash,
+      codeHint: secret.hint,
+      planId: planRow.id,
+      orderId: null,
+      durationDays: planRow.duration_days,
+      maxDevices: planRow.max_devices,
+      createdBy,
+    });
+    await logAction(client, {
+      userId: createdBy,
+      action: "code.create_test",
+      targetType: "access_code",
+      targetId: code.id,
+      metadata: { plan: planRow.slug, codeHint: secret.hint },
+    });
+    return {
+      codeId: code.id,
+      code: secret.code,
+      planName: planRow.name,
+      durationDays: planRow.duration_days,
+      maxDevices: planRow.max_devices,
+      orderId: null,
+      message: buildCodeMessage({ code: secret.code, planName: planRow.name, durationDays: planRow.duration_days, maxDevices: planRow.max_devices }),
+      buyerWhatsappUrl: null,
+    };
+  });
 }
 
-/** Accepts the full code, its 4-character hint, or its id. */
-export async function disableAccessCode(identifier: string, reason: string | null): Promise<{ hint: string; revokedSessions: number }> {
+/**
+ * Issues a new secret for an existing code (e.g. the buyer lost it). The old code stops working,
+ * all devices are signed out, and the activation date and expiry are kept.
+ */
+export async function regenerateCode(codeId: string, userId: string | null): Promise<IssuedCode> {
+  return withTransaction(async (client) => {
+    const code = await accessCodes.findById(client, codeId, { forUpdate: true });
+    if (!code) notFound("Kode akses tidak ditemukan.");
+    if (code.status === "disabled") invalid("Kode akses sudah nonaktif dan tidak dapat diganti.");
+    if (code.status === "expired" || (code.expires_at && code.expires_at <= new Date())) {
+      invalid("Masa aktif kode sudah habis. Buat pesanan baru untuk perpanjangan.");
+    }
+
+    const secret = await newUniqueCode(client);
+    await accessCodes.replaceSecret(client, code.id, secret.hash, secret.hint);
+    await sessions.revokeAllForCode(client, code.id);
+    await logAction(client, {
+      userId,
+      action: "code.regenerate",
+      targetType: "access_code",
+      targetId: code.id,
+      metadata: { oldHint: code.code_hint, newHint: secret.hint },
+    });
+
+    const listRow = (await accessCodes.findListRow(client, code.id))!;
+    const message = buildCodeMessage({
+      code: secret.code,
+      planName: listRow.plan_name,
+      durationDays: code.duration_days,
+      maxDevices: code.max_devices,
+      expiresAt: code.expires_at,
+    });
+    return {
+      codeId: code.id,
+      code: secret.code,
+      planName: listRow.plan_name,
+      durationDays: code.duration_days,
+      maxDevices: code.max_devices,
+      orderId: code.order_id,
+      message,
+      buyerWhatsappUrl: listRow.buyer_whatsapp ? whatsappUrl(listRow.buyer_whatsapp, message) : null,
+    };
+  });
+}
+
+export async function disableCodeById(codeId: string, reason: string | null, userId: string | null): Promise<{ hint: string; revokedSessions: number }> {
+  return withTransaction(async (client) => {
+    const code = await accessCodes.findById(client, codeId, { forUpdate: true });
+    if (!code) notFound("Kode akses tidak ditemukan.");
+    if (code.status === "disabled") invalid("Kode akses sudah nonaktif.");
+    await accessCodes.disable(client, code.id, reason, userId);
+    const revokedSessions = await sessions.revokeAllForCode(client, code.id);
+    await logAction(client, {
+      userId,
+      action: "code.disable",
+      targetType: "access_code",
+      targetId: code.id,
+      metadata: { codeHint: code.code_hint, reason },
+    });
+    return { hint: code.code_hint, revokedSessions };
+  });
+}
+
+/** CLI helper: accepts the full code, its last 4 characters, or its id. */
+export async function disableCodeByIdentifier(identifier: string, reason: string | null): Promise<{ hint: string; revokedSessions: number }> {
   const pool = getPool();
   const normalized = normalizeAccessCode(identifier);
   let matches: accessCodes.AccessCodeRow[];
@@ -120,19 +240,14 @@ export async function disableAccessCode(identifier: string, reason: string | nul
   } else {
     matches = await accessCodes.findByIdOrHint(pool, identifier.trim());
   }
-
-  if (matches.length === 0) throw new AdminError("Kode akses tidak ditemukan.");
+  if (matches.length === 0) notFound("Kode akses tidak ditemukan.");
   if (matches.length > 1) {
     const ids = matches.map((m) => `  ${m.id}  (${m.status}, dibuat ${m.created_at.toISOString().slice(0, 10)})`).join("\n");
-    throw new AdminError(`Ada ${matches.length} kode dengan akhiran yang sama. Gunakan id:\n${ids}`);
+    invalid(`Ada ${matches.length} kode dengan akhiran yang sama. Gunakan id:\n${ids}`);
   }
+  return disableCodeById(matches[0].id, reason, null);
+}
 
-  const target = matches[0];
-  if (target.status === "disabled") throw new AdminError("Kode akses sudah nonaktif.");
-
-  return withTransaction(async (client) => {
-    await accessCodes.disable(client, target.id, reason);
-    const revokedSessions = await sessions.revokeAllForCode(client, target.id);
-    return { hint: target.code_hint, revokedSessions };
-  });
+export async function listAccessCodes(options: { status?: accessCodes.AccessCodeStatus; limit: number }) {
+  return accessCodes.list(getPool(), options);
 }

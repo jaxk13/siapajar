@@ -205,6 +205,9 @@ Current package scripts include:
 - `npm run preview`
 - `npm run clean`
 - `npm run lint`
+- `npm run db:migrate`, `npm run db:seed`
+- `npm run access:create | access:list | access:disable`
+- `npm run user:create | user:reset-password`
 
 Runtime: Node `^20.19.0 || >=22.12.0` (declared in `package.json` `engines`). The server entry is `server/index.ts`; `npm start` sets `NODE_ENV=production`. Environment variables are read only through `server/config/env.ts` (see `.env.example`).
 
@@ -212,23 +215,34 @@ Do not claim verification that was not actually run.
 
 ## 15a. Local PostgreSQL (Development Only)
 
-`docker-compose.dev.yml` runs PostgreSQL for local development. Production uses PostgreSQL on the VPS, not this file.
+`docker-compose.yml` runs PostgreSQL for local development. Production uses PostgreSQL on the VPS, not this file.
 
 1. `cp .env.example .env` and set `POSTGRES_PASSWORD` (and matching `DATABASE_URL`).
-2. Start: `docker compose -f docker-compose.dev.yml up -d`
+2. Start: `docker compose up -d`
 3. Connect: `docker exec -it siapajar-postgres psql -U siapajar -d siapajar_dev`
-4. Stop (keeps data): `docker compose -f docker-compose.dev.yml down`
-5. Reset (deletes local data): `docker compose -f docker-compose.dev.yml down -v`
+4. Stop (keeps data): `docker compose down`
+5. Reset (deletes local data): `docker compose down -v`
+
+pgAdmin (database GUI) starts together with PostgreSQL at http://localhost:5050 (localhost only). Sign in with `PGADMIN_DEFAULT_EMAIL` / `PGADMIN_DEFAULT_PASSWORD` from `.env`. The server "SIAPAJAR (local)" is pre-registered from `pgadmin/servers.json` (host `postgres`, port `5432`; inside Docker, not `localhost`). Run only the database with `docker compose up -d postgres`.
 
 The port is bound to `127.0.0.1` only. Schema changes still require tracked migrations (`DATABASE.md` §6).
 
 After the database is running:
 
 6. Apply migrations: `npm run db:migrate` (safe to repeat)
-7. Seed plans and settings: `npm run db:seed` (safe to repeat; updates plans by slug)
-8. Create a test access code: `npm run access:create -- --plan pro --test`
+7. Seed plans and settings: `npm run db:seed` (safe to repeat; only adds what is missing, so admin-panel edits are kept; `-- --overwrite` resets them)
+8. Create the first super admin: set `SEED_ADMIN_NAME` / `SEED_ADMIN_EMAIL` in `.env` and run `npm run db:seed:admin` (or `npm run user:create -- --name "Nama" --email nama@contoh.id`), then sign in at `/super-admin/masuk`. `SEED_ADMIN_PASSWORD` is for local development only and is refused in production.
+9. Create a test access code in the admin panel (Kode Akses → Buat kode uji) or `npm run access:create -- --plan pro --test`
 
 New migrations go in `server/db/migrations/` as `NNN_description.sql`; never edit a migration that has already been applied.
+
+## 15b. Logbook
+
+Every change to the project gets a report in `Logbook/` (see `Logbook/README.md`):
+
+- File name: `logbook-<nama-perubahan>-<nomor>.md`, e.g. `logbook-panel-admin-010.md`.
+- Numbers are sequential across the whole folder (001, 002, …) and never reused.
+- Use the template in `Logbook/README.md` and add the entry to its index table.
 
 ## 16. Git Hygiene
 

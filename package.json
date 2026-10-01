@@ -15,9 +15,12 @@
     "lint": "tsc --noEmit",
     "db:migrate": "tsx server/db/migrate.ts",
     "db:seed": "tsx server/db/seed.ts",
+    "db:seed:admin": "tsx server/db/seed.ts --only admin",
     "access:create": "tsx server/scripts/access-cli.ts create",
     "access:list": "tsx server/scripts/access-cli.ts list",
-    "access:disable": "tsx server/scripts/access-cli.ts disable"
+    "access:disable": "tsx server/scripts/access-cli.ts disable",
+    "user:create": "tsx server/scripts/user-cli.ts create",
+    "user:reset-password": "tsx server/scripts/user-cli.ts reset-password"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",
