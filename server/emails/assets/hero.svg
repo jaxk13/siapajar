@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 1200" width="1407" height="1407">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#226a48"/>
+      <stop offset="1" stop-color="#164430"/>
+    </linearGradient>
+    <linearGradient id="card" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#eef6f1"/>
+    </linearGradient>
+  </defs>
+<g transform="translate(0 380)">
+  <rect width="1200" height="440" fill="url(#bg)"/>
+  <circle cx="90" cy="70" r="140" fill="#2f7d57" opacity="0.45"/>
+  <circle cx="1130" cy="400" r="190" fill="#2f7d57" opacity="0.35"/>
+  <circle cx="1040" cy="60" r="36" fill="#4e9a74" opacity="0.5"/>
+  <circle cx="200" cy="380" r="22" fill="#7db999" opacity="0.5"/>
+  <!-- confetti -->
+  <rect x="300" y="70" width="18" height="8" rx="4" fill="#f5c451" transform="rotate(-25 309 74)"/>
+  <rect x="880" y="96" width="20" height="8" rx="4" fill="#f5c451" transform="rotate(30 890 100)"/>
+  <rect x="940" y="330" width="16" height="8" rx="4" fill="#aed5be" transform="rotate(-40 948 334)"/>
+  <rect x="250" y="300" width="16" height="8" rx="4" fill="#f5c451" transform="rotate(50 258 304)"/>
+  <circle cx="360" cy="360" r="7" fill="#aed5be"/>
+  <circle cx="830" cy="60" r="6" fill="#ffffff" opacity="0.7"/>
+  <circle cx="1000" cy="230" r="8" fill="#f5c451"/>
+  <circle cx="170" cy="200" r="6" fill="#ffffff" opacity="0.6"/>
+  <!-- exam sheet (back) -->
+  <g transform="rotate(-8 470 230)">
+    <rect x="380" y="90" width="190" height="250" rx="14" fill="#d5eadd"/>
+    <rect x="410" y="130" width="120" height="12" rx="6" fill="#7db999"/>
+    <rect x="410" y="160" width="90" height="12" rx="6" fill="#aed5be"/>
+    <rect x="410" y="200" width="130" height="12" rx="6" fill="#aed5be"/>
+    <rect x="410" y="230" width="100" height="12" rx="6" fill="#aed5be"/>
+  </g>
+  <!-- access card -->
+  <g>
+    <rect x="470" y="130" width="380" height="220" rx="22" fill="#10321f" opacity="0.35" transform="translate(8 12)"/>
+    <rect x="470" y="130" width="380" height="220" rx="22" fill="url(#card)"/>
+    <rect x="470" y="130" width="380" height="58" rx="22" fill="#2f7d57"/>
+    <rect x="470" y="166" width="380" height="22" fill="#2f7d57"/>
+    <circle cx="510" cy="159" r="14" fill="#ffffff"/>
+    <path d="M503 159l5 5 9-10" fill="none" stroke="#226a48" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="538" y="151" width="130" height="16" rx="8" fill="#ffffff" opacity="0.85"/>
+    <!-- code boxes -->
+    <g fill="#ffffff" stroke="#aed5be" stroke-width="3">
+      <rect x="500" y="218" width="72" height="56" rx="10"/>
+      <rect x="586" y="218" width="72" height="56" rx="10"/>
+      <rect x="672" y="218" width="72" height="56" rx="10"/>
+      <rect x="758" y="218" width="72" height="56" rx="10"/>
+    </g>
+    <g fill="#226a48">
+      <circle cx="524" cy="246" r="6"/><circle cx="548" cy="246" r="6"/>
+      <circle cx="610" cy="246" r="6"/><circle cx="634" cy="246" r="6"/>
+      <circle cx="696" cy="246" r="6"/><circle cx="720" cy="246" r="6"/>
+      <circle cx="782" cy="246" r="6"/><circle cx="806" cy="246" r="6"/>
+    </g>
+    <rect x="500" y="300" width="170" height="14" rx="7" fill="#aed5be"/>
+    <rect x="690" y="296" width="140" height="24" rx="12" fill="#226a48"/>
+  </g>
+  <!-- key -->
+  <g transform="rotate(-35 900 150)">
+    <circle cx="900" cy="150" r="42" fill="#f5c451"/>
+    <circle cx="900" cy="150" r="17" fill="#226a48"/>
+    <rect x="938" y="140" width="110" height="20" rx="6" fill="#f5c451"/>
+    <rect x="1010" y="158" width="14" height="26" rx="4" fill="#f5c451"/>
+    <rect x="1032" y="158" width="14" height="18" rx="4" fill="#f5c451"/>
+  </g>
+</g>
+</svg>

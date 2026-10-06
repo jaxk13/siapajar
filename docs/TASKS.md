@@ -17,7 +17,7 @@ This document is the active implementation checklist.
 ## Implementation Order Note
 
 Phase 1 needs the database. Build **Phase 9A (database foundation)** before the Phase 1 API work.
-Order: Phase 9A → Phase 1 → Phase 10 (pricing & manual purchase) → Phases 2–8 → rest of Phase 9 → Phase 11.
+Order: Phase 9A → Phase 1 → Phase 10 (pricing & manual purchase) → Phase 10A (admin panel) → Phase 10B (automatic payment) → Phases 2–8 → rest of Phase 9 → Phase 11.
 
 ## Phase 9A — Database Foundation (before Phase 1)
 
@@ -139,7 +139,7 @@ Do NOT implement Direct AI as part of this phase.
 
 ## Phase 10 — Pricing and Manual Purchase (PRD §21, ADR-011)
 
-- [ ] Decide plan prices and durations (BELUM DIPUTUSKAN), then update `server/db/seeds/plans.ts` and set `isActive: true`
+- [ ] Decide plan prices and durations (BELUM DIPUTUSKAN), then set them in the admin panel (Paket & Harga). Checkout refuses plans priced 0
 - [x] Device limit decided (2 per code)
 - [x] Payment method decided (bank transfer and QRIS)
 - [x] Admin WhatsApp number (set via `ADMIN_WHATSAPP` + `npm run db:seed`)
@@ -148,14 +148,23 @@ Do NOT implement Direct AI as part of this phase.
 - [x] "Beli via WhatsApp" button with prefilled message
 - [x] Order recording via admin CLI (buyer name, WhatsApp, payment method, reference, proof file)
 
-### Deferred: Automatic Payment (PRD FR-P06)
+## Phase 10B — Automatic Payment, Email Delivery, Ad Measurement (PRD FR-P06, FR-P07, ADR-017)
 
-- [ ] Skaler integration
-- [ ] Webhook verification
-- [ ] Idempotent event handling (`orders.provider_ref` unique)
-- [ ] Automatic access code provisioning
-
-The exact implementation must follow the provider's actual API/webhook capabilities.
+- [x] Migration `003_automatic_payment` (order statuses expired/failed, Midtrans payment methods, buyer_email, attribution, order_deliveries)
+- [x] `GET /api/checkout/config`, `POST /api/checkout` (Midtrans Snap), `GET /api/checkout/:orderId`
+- [x] `POST /api/payment/webhook`: signature check, status confirmed with the Midtrans API, idempotent (row lock, one code per order)
+- [x] Access code emailed automatically (HTML email with inline images, nodemailer/SMTP); delivery attempts recorded
+- [x] Checkout dialog on the landing page, Midtrans popup, `/pembayaran/selesai` result page
+- [x] Meta Pixel on public pages (PageView, ViewContent, InitiateCheckout, Purchase) + Conversions API with shared event ids
+- [x] utm/fbclid attribution stored per order
+- [x] Admin panel: status filter, buyer email, ad source, email delivery history, resend email, WhatsApp reminder for unpaid checkouts, checkout counts on the overview
+- [x] `/kebijakan-privasi` and consent checkbox at checkout
+- [x] Development: Mailpit in docker-compose, `npm run payment:simulate`, `npm run email:preview`
+- [ ] Midtrans sandbox account and keys in `.env`; test a real sandbox payment with a tunnel (ngrok) for the webhook
+- [ ] Meta Pixel id, Conversions API token, test event code; check events in Test Events
+- [ ] Production: Midtrans production keys (after account verification), SMTP provider (Resend/Brevo) with SPF/DKIM for the sender domain, `APP_URL`, empty `META_TEST_EVENT_CODE`
+- [ ] Legal review of the privacy notice text
+- [ ] Optional later: automatic WhatsApp delivery of the code
 
 ## Phase 10A — Admin Panel (`/super-admin`, PRD FR-ADM, ADR-016)
 
@@ -171,6 +180,15 @@ The exact implementation must follow the provider's actual API/webhook capabilit
 - [x] Team management (create, role, deactivate, reset password)
 - [x] Activity log
 - [x] Responsive: phone, tablet, laptop
+
+## Phase 12 — Deployment (VPS, ADR-018)
+
+- [x] Deployment guide `deploy/README.md` (VPS setup, Node 22, PM2, PostgreSQL 17, Caddy, DNS, `.env`, update, restore)
+- [x] `deploy/Caddyfile`, `deploy/ecosystem.config.cjs`, `deploy/deploy.sh`
+- [x] `deploy/backup.sh`: daily encrypted backup (`age`) to Google Drive (`rclone`) with retention; tested locally against PostgreSQL 17 (Google Drive replaced by a local rclone remote)
+- [ ] Create the server branch and VPS; follow `deploy/README.md` §2–§7
+- [ ] `age` key pair (private key offline) and rclone Google Drive remote; schedule the backup cron; healthchecks.io ping
+- [ ] First restore test on the VPS (§10.3), then monthly
 
 ## Phase 11 — Telegram Monitoring
 

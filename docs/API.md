@@ -145,7 +145,7 @@ Success:
   }
 }
 
-- Only plans with `is_active = true` are returned. Seeded plans are inactive until real prices are set.
+- Only plans with `is_active = true` are returned.
 - `contact` is `null` until `admin_whatsapp` is set (via `ADMIN_WHATSAPP` and `npm run db:seed`).
 - The frontend adds the prefilled message (plan name) to `whatsappUrl`.
 
@@ -157,20 +157,108 @@ The admin team uses the web panel (`/super-admin`, API below). The CLI remains f
 - `npm run user:reset-password -- --email <email>`
 - `npm run access:create | access:list | access:disable` — same operations as the panel.
 
-### POST /api/payment/webhook
+### Automatic purchase (Midtrans)
 
-Status: deferred (PRD FR-P06). Not part of MVP while payment is confirmed manually via WhatsApp.
+Status: implemented (PRD FR-P06, FR-P07, ADR-017). Public endpoints, no cookies.
 
-Purpose:
-Receive payment-provider events.
+#### GET /api/checkout/config
 
-Requirements:
-- verify provider authenticity;
-- make processing idempotent;
-- do not create duplicate access codes from repeated events;
-- do not expose payment secrets in logs.
+{
+  "success": true,
+  "data": {
+    "enabled": true,
+    "midtransClientKey": "SB-Mid-client-…",
+    "snapScriptUrl": "https://app.sandbox.midtrans.com/snap/snap.js",
+    "metaPixelId": "1234567890"
+  }
+}
 
-Provider-specific details should be documented when the actual provider integration is implemented.
+- `enabled` is `false` (and the Midtrans fields `null`) while `MIDTRANS_SERVER_KEY`/`MIDTRANS_CLIENT_KEY` are empty; the landing page then keeps "Beli via WhatsApp".
+- `metaPixelId` is `null` when `META_PIXEL_ID` is empty. The client key and Pixel id are public by design; the server key and CAPI token never leave the server.
+
+#### POST /api/checkout
+
+Rate limit: 10 per 10 minutes per IP.
+
+Request:
+
+{
+  "planSlug": "pro",
+  "name": "Siti Aminah",
+  "email": "siti@contoh.id",
+  "whatsapp": "081234567890",
+  "consent": true,
+  "attribution": { "utmSource": "facebook", "utmCampaign": "guru-sd-oktober", "fbclid": "…", "fbp": "…", "fbc": "…" }
+}
+
+Success `201`:
+
+{
+  "success": true,
+  "data": {
+    "orderId": "uuid",
+    "snapToken": "…",
+    "redirectUrl": "https://app.sandbox.midtrans.com/snap/v4/redirection/…",
+    "amountIdr": 150000,
+    "planSlug": "pro",
+    "planName": "Pro"
+  }
+}
+
+- Creates an order with status `pending`; the amount always comes from `plans.price_idr`.
+- `attribution` keys outside the list above are ignored. The server adds the client IP and user agent only when Meta is configured, and removes them later.
+- The server sends `InitiateCheckout` to the Meta Conversions API with `event_id = "checkout-<orderId>"`; the browser Pixel uses the same id.
+- The browser opens `window.snap.pay(snapToken)`; if snap.js cannot load, it goes to `redirectUrl`.
+
+Errors:
+
+| Status | Code | When |
+|---|---|---|
+| 400 | `VALIDATION_ERROR` | Missing consent, invalid email/WhatsApp, price not set |
+| 404 | `NOT_FOUND` | Unknown or inactive plan |
+| 429 | `RATE_LIMITED` | Too many checkouts |
+| 502 | `PAYMENT_PROVIDER_ERROR` | Midtrans refused or is unreachable (order becomes `failed`) |
+| 503 | `PAYMENT_UNAVAILABLE` | Midtrans keys not configured |
+
+#### GET /api/checkout/:orderId
+
+Rate limit: 40 per minute per IP. Used by `/pembayaran/selesai`.
+
+{
+  "success": true,
+  "data": {
+    "status": "pending | paid | expired | failed",
+    "planSlug": "pro",
+    "planName": "Pro",
+    "amountIdr": 150000,
+    "emailHint": "si***@contoh.id",
+    "emailSent": true
+  }
+}
+
+- `emailSent` is `null` while unpaid, `false` while the code has not been emailed.
+- For a `pending` order the server asks Midtrans for the status (at most every 5 seconds per order) and applies it the same way as a notification.
+- `404 NOT_FOUND` for unknown ids and for orders recorded by an admin.
+
+#### POST /api/payment/webhook
+
+Midtrans "Payment Notification URL": `<APP_URL>/api/payment/webhook`.
+
+1. `signature_key` must equal SHA-512(`order_id` + `status_code` + `gross_amount` + server key), compared in constant time. Otherwise `403 INVALID_SIGNATURE`.
+2. Unknown order ids (e.g. the dashboard's test notification) → `200 { "handled": false }`.
+3. The outcome is read again from `GET /v2/<order_id>/status` at Midtrans; the notification body is never trusted for it.
+4. `settlement`, or `capture` with fraud status `accept` → order `paid`, access code created, email sent, order `fulfilled`, Meta `Purchase` sent (`event_id = "purchase-<orderId>"`). The paid amount must equal the order amount.
+5. `expire` → `expired`; `deny`, `cancel`, `failure` → `failed` (only from `pending`). `pending`/`challenge` change nothing. `refund`/`chargeback` are logged for manual handling.
+6. Processing is idempotent: the order row is locked and a paid order is never processed twice.
+
+Errors from Midtrans' status API return `500`, so Midtrans retries the notification. Logs never contain the server key, buyer data, or the code.
+
+### Development helpers
+
+- `npm run payment:simulate` — lists pending checkouts.
+- `npm run payment:simulate -- <orderId> [--result paid|expired|failed]` — applies a result without Midtrans (refused in production; CLI only, no HTTP route).
+- `npm run payment:simulate -- --new --plan <slug> --email <email>` — creates a checkout and marks it paid (code + email + Meta Purchase).
+- `npm run email:preview -- <email>` — sends a sample access-code email.
 
 ## 4A. Admin Panel API (`/api/super-admin`)
 
@@ -190,10 +278,11 @@ Security for every admin endpoint:
 | POST | `/auth/logout` | any | Ends the admin session |
 | GET | `/me` | signed in (password change allowed) | Current user |
 | POST | `/me/password` | signed in (password change allowed) | `{ currentPassword, newPassword }`; min. 10 characters with letters and digits; signs out other devices |
-| GET | `/overview` | admin | Orders today/month, revenue this month, active/unused/expiring codes, 5 recent orders |
-| GET | `/orders?search=&page=` | admin | Search by buyer name, WhatsApp number, or last 4 code characters |
+| GET | `/overview` | admin | Paid orders today/month, revenue this month, active/unused/expiring codes, 5 recent orders; automatic checkout counts (`checkoutsMonth`, `unpaidOpen`, `closedMonth`) and `undeliveredPaid` (paid, code not emailed) |
+| GET | `/orders?search=&status=&page=` | admin | Search by buyer name, email, WhatsApp number, or last 4 code characters. `status`: `paid` (paid + fulfilled), `unpaid` (pending), `closed` (expired, failed, cancelled). Rows include `status`, `buyerEmail`, `provider`, `campaign`, `source`, `emailStatus` |
 | POST | `/orders` | admin | `{ planId, buyerName, buyerWhatsapp, paymentMethod, paymentReference?, note?, proof: { dataBase64 } }` → `201 { issued }` (code shown once, WhatsApp message, buyer `wa.me` link). Proof: JPG/PNG/WEBP/PDF detected by content, max 5 MB (request limit 7 MB) |
-| GET | `/orders/:id` | admin | Order, code, active devices |
+| GET | `/orders/:id` | admin | Order (incl. email, attribution: source/medium/campaign/content/term/fromMetaAd, `reminderWhatsappUrl` for unpaid checkouts), code, active devices, email `deliveries` |
+| POST | `/orders/:id/send-email` | admin, 10/min | `{ email? }` → issues a new code for the order (old code stops working, devices signed out, expiry kept) and emails it; `email` corrects the buyer address → `{ status: "sent" \| "failed" \| "skipped", email }` |
 | GET | `/orders/:id/proof` | admin | Proof file (`Cache-Control: private, no-store`) |
 | GET | `/codes?status=&search=&page=` | admin | All codes including test codes |
 | GET | `/codes/:id` | admin | Code and active devices |

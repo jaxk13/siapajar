@@ -36,6 +36,8 @@ export interface IssuedCode {
   durationDays: number;
   maxDevices: number | null;
   orderId: string | null;
+  /** Set when an already-active code is replaced: the original expiry still applies. */
+  expiresAt: Date | null;
   message: string;
   /** wa.me link to the buyer with the message prefilled (orders only). */
   buyerWhatsappUrl: string | null;
@@ -50,8 +52,8 @@ async function resolvePlan(db: Queryable, plan: { id?: string; slug?: string }):
   return row;
 }
 
-/** Generates a code whose hash does not exist yet. */
-async function newUniqueCode(db: Queryable): Promise<{ code: string; hash: string; hint: string }> {
+/** Generates a code whose hash does not exist yet. Also used by the payment webhook. */
+export async function newUniqueCode(db: Queryable): Promise<{ code: string; hash: string; hint: string }> {
   for (let attempt = 0; attempt < 3; attempt++) {
     const code = generateAccessCode();
     const normalized = normalizeAccessCode(code)!;
@@ -122,6 +124,7 @@ export async function createOrderWithCode(
         durationDays: planRow.duration_days,
         maxDevices: planRow.max_devices,
         orderId: order.id,
+        expiresAt: null,
         message,
         buyerWhatsappUrl: whatsappUrl(whatsapp, message),
       };
@@ -160,6 +163,7 @@ export async function createTestCode(plan: { id?: string; slug?: string }, creat
       durationDays: planRow.duration_days,
       maxDevices: planRow.max_devices,
       orderId: null,
+      expiresAt: null,
       message: buildCodeMessage({ code: secret.code, planName: planRow.name, durationDays: planRow.duration_days, maxDevices: planRow.max_devices }),
       buyerWhatsappUrl: null,
     };
@@ -205,6 +209,7 @@ export async function regenerateCode(codeId: string, userId: string | null): Pro
       durationDays: code.duration_days,
       maxDevices: code.max_devices,
       orderId: code.order_id,
+      expiresAt: code.expires_at,
       message,
       buyerWhatsappUrl: listRow.buyer_whatsapp ? whatsappUrl(listRow.buyer_whatsapp, message) : null,
     };

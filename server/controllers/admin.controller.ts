@@ -5,15 +5,18 @@ import { ADMIN_COOKIE, clearAdminCookie, readCookie, setAdminCookie } from "../l
 import { asBody, bool, email, int, oneOf, page, str, uuidParam } from "../lib/validate";
 import { getAdmin } from "../middleware/requireAdmin";
 import type { AccessCodeStatus } from "../repositories/accessCodes.repository";
+import type { OrderFilter } from "../repositories/orders.repository";
 import type { UserRole } from "../repositories/users.repository";
 import * as access from "../services/adminAccess.service";
 import * as auth from "../services/adminAuth.service";
+import * as delivery from "../services/codeDelivery.service";
 import * as panel from "../services/adminPanel.service";
 import * as team from "../services/adminUsers.service";
 
 const ROLES: readonly UserRole[] = ["super_admin", "admin"];
 const CODE_STATUSES: readonly AccessCodeStatus[] = ["unused", "active", "expired", "disabled"];
 const PAYMENT_METHODS = ["bank_transfer", "qris"] as const;
+const ORDER_FILTERS: readonly OrderFilter[] = ["paid", "unpaid", "closed"];
 
 function sessionUser(session: auth.AdminSession) {
   return { ...session.user, sessionExpiresAt: session.expiresAt.toISOString() };
@@ -67,7 +70,9 @@ export async function getOverview(_req: Request, res: Response) {
 
 export async function getOrders(req: Request, res: Response) {
   const { limit, offset } = page(req.query);
-  sendSuccess(res, await panel.listOrders(searchParam(req), limit, offset));
+  const rawStatus = typeof req.query.status === "string" ? req.query.status : "";
+  const filter = ORDER_FILTERS.includes(rawStatus as OrderFilter) ? (rawStatus as OrderFilter) : null;
+  sendSuccess(res, await panel.listOrders(searchParam(req), filter, limit, offset));
 }
 
 export async function postOrder(req: Request, res: Response) {
@@ -94,6 +99,12 @@ export async function postOrder(req: Request, res: Response) {
 
 export async function getOrder(req: Request, res: Response) {
   sendSuccess(res, await panel.getOrderDetail(uuidParam(req.params.id)));
+}
+
+export async function postResendEmail(req: Request, res: Response) {
+  const body = asBody(req.body);
+  const newEmail = typeof body.email === "string" && body.email.trim() ? email(body, "email") : null;
+  sendSuccess(res, await delivery.resendCodeEmail(uuidParam(req.params.id), newEmail, getAdmin(res).user.id));
 }
 
 export async function getOrderProof(req: Request, res: Response) {

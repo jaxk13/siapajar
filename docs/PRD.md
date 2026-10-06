@@ -7,7 +7,7 @@ Keterangan
 Nama Produk
 SIAPAJAR.id — Sistem Asisten Pendidik Penulisan Naskah Soal & Asesmen Terstandar
 Versi Dokumen
-2.2.0
+2.3.1
 Status
 MVP Development Specification
 Target Pengguna
@@ -19,7 +19,7 @@ Node.js + Express
 Database
 PostgreSQL self-hosted
 Infrastructure
-VPS Linux + Nginx + PM2
+VPS Linux + Caddy + PM2 (ADR-018)
 Access System
 Access Code + Temporary Session (guru, tanpa akun)
 Admin Panel
@@ -524,6 +524,7 @@ Rancangan lengkap: docs/DATABASE.md dan docs/ERD.dbml.
 
 21. Pricing, Pembayaran & Pengiriman Kode Akses
 Perubahan v2.1.0: pada MVP, kode akses dikirim secara manual oleh admin melalui WhatsApp. Integrasi pembayaran otomatis (Skaler + webhook) ditunda.
+Perubahan v2.3.0: pembayaran otomatis melalui Midtrans dengan pengiriman kode akses ke email (FR-P06) dan pengukuran iklan Meta (FR-P07). Alur WhatsApp tetap sebagai cadangan.
 
 FR-P01 — Halaman Harga
 Halaman utama menampilkan daftar paket.
@@ -538,7 +539,8 @@ Nama paket awal: Instan dan Pro.
 Perbedaan antar paket hanya harga dan masa aktif; fitur sama.
 Harga dan masa aktif: BELUM DIPUTUSKAN (seeder memakai nilai placeholder dan paket belum ditampilkan).
 
-FR-P02 — Pembelian melalui WhatsApp (MVP)
+FR-P02 — Pembelian melalui WhatsApp (cadangan)
+Sejak v2.3.0 pembelian utama otomatis melalui Midtrans (FR-P06). Alur WhatsApp di bawah tetap dipakai ketika pembayaran otomatis belum diaktifkan (key Midtrans kosong) dan untuk pembeli yang membayar langsung ke admin.
 Tombol pembelian membuka WhatsApp admin dengan pesan yang sudah terisi (nama paket).
 Konsep flow:
 Guru memilih paket di halaman utama
@@ -600,13 +602,47 @@ Keamanan:
 password di-hash (scrypt); sesi admin terpisah dari sesi guru, berlaku 8 jam, cookie HttpOnly + SameSite=Strict;
 percobaan masuk dibatasi; permintaan dari situs lain ditolak;
 bukti transaksi hanya dapat dilihat admin yang masuk.
-Tidak termasuk: dashboard statistik/grafik, multi-level peran tambahan, edit konten landing page.
+Tambahan v2.3.0 (pembayaran otomatis, FR-P06):
+ringkasan pembelian otomatis bulan ini berupa angka (checkout, menunggu bayar, kedaluwarsa/gagal) dan peringatan jika ada pesanan lunas yang kodenya belum terkirim;
+filter status pesanan (lunas, menunggu bayar, kedaluwarsa/gagal) dan pencarian email;
+detail pesanan: email, status, sumber pembeli (utm/kampanye, klik iklan Meta), riwayat pengiriman email;
+kirim ulang kode lewat email (kode baru, alamat email dapat diperbaiki);
+tombol "Ingatkan via WhatsApp" dengan pesan siap kirim untuk checkout yang belum dibayar.
+Tidak termasuk: dashboard statistik/grafik, multi-level peran tambahan, edit konten landing page. Analisis iklan (pengunjung, biaya, ROAS) dilihat di Meta Ads Manager, bukan di panel admin.
 
-FR-P06 — Pembayaran Otomatis (Ditunda)
-Integrasi otomatis dengan payment provider Skaler (webhook → pembuatan kode otomatis) ditunda setelah MVP.
-Jika diimplementasikan:
-detail webhook/API mengikuti kemampuan aktual provider;
-sistem harus mencegah satu event pembayaran membuat kode akses berulang.
+FR-P06 — Pembayaran Otomatis (Midtrans)
+Status: diimplementasikan pada v2.3.0 (ADR-017). Menggantikan rencana integrasi Skaler.
+Alur:
+Guru memilih paket di halaman utama dan mengisi nama, email, nomor WhatsApp, serta persetujuan
+   ↓
+Server mencatat pesanan berstatus "pending" (harga diambil dari server) dan membuat transaksi Midtrans Snap
+   ↓
+Guru membayar di popup Midtrans (QRIS, virtual account, e-wallet, sesuai kanal yang aktif di akun Midtrans)
+   ↓
+Midtrans mengirim notifikasi ke POST /api/payment/webhook
+   ↓
+Server memverifikasi tanda tangan notifikasi DAN menanyakan status transaksi langsung ke API Midtrans
+   ↓
+Jika lunas dan nominal cocok: pesanan menjadi "paid", kode akses dibuat, lalu dikirim ke email pembeli (email HTML bergambar)
+   ↓
+Email terkirim: pesanan menjadi "fulfilled"
+Aturan:
+status lunas tidak pernah ditentukan oleh browser;
+satu pembayaran hanya menghasilkan satu kode akses walaupun notifikasi datang berkali-kali (row lock, satu kode per pesanan, provider_ref unik);
+checkout yang tidak dibayar menjadi "expired" (batas waktu 24 jam) atau "failed" (ditolak/dibatalkan);
+jika email gagal, pembayaran tetap tercatat; admin mengirim ulang dari panel (FR-ADM);
+refund/chargeback ditangani manual oleh admin (nonaktifkan kode).
+Halaman /pembayaran/selesai menampilkan status pembayaran dan memperbarui diri sampai kode terkirim.
+Pengiriman kode lewat WhatsApp otomatis belum termasuk; admin tetap dapat mengirim manual dari panel.
+
+FR-P07 — Pengukuran Iklan (Meta Pixel + Conversions API)
+Ditambahkan pada v2.3.0 (ADR-017).
+Meta Pixel hanya dimuat di halaman publik: halaman utama, halaman hasil pembayaran, dan kebijakan privasi. Tidak pernah di /app atau /super-admin.
+Event: PageView, ViewContent (section harga terlihat), InitiateCheckout (checkout dibuat), Purchase (pembayaran lunas).
+InitiateCheckout dan Purchase juga dikirim dari server melalui Conversions API dengan event_id yang sama, sehingga Meta menghitungnya satu kali dan pembelian tetap tercatat walau Pixel diblokir.
+Email dan nomor WhatsApp dikirim ke Meta hanya dalam bentuk hash SHA-256. Alamat IP dan user agent disimpan sementara di pesanan untuk Conversions API, lalu dihapus setelah event Purchase dikirim atau checkout ditutup.
+Sumber pembeli (utm_source, utm_medium, utm_campaign, utm_content, utm_term, fbclid) disimpan di pesanan dan tampil di panel admin.
+Checkout mensyaratkan persetujuan atas Kebijakan Privasi (/kebijakan-privasi). Teks kebijakan privasi perlu ditinjau sebelum peluncuran.
 
 22. Telegram Monitoring
 Backend dapat mengirim notification event penting.
@@ -627,7 +663,7 @@ data sensitif yang tidak diperlukan.
                            │
                            ▼
                     ┌──────────────┐
-                    │    NGINX     │
+                    │    CADDY     │
                     │ HTTPS/Proxy  │
                     └──────┬───────┘
                            │
@@ -673,7 +709,7 @@ Question Editor
 Target:
 VPS Linux
 Software:
-Nginx
+Caddy (sebelumnya direncanakan Nginx; diganti pada v2.3.1, ADR-018)
 Node.js
 PM2
 PostgreSQL
@@ -682,13 +718,14 @@ Internet
    ↓
 HTTPS
    ↓
-Nginx
+Caddy
    ↓
 Frontend / API
           ↓
        Express
           ↓
       PostgreSQL
+Backup: database, bukti transaksi, dan .env dicadangkan setiap hari, dienkripsi, dan disimpan di Google Drive (retensi 14 hari harian, ±13 bulan bulanan). Panduan: deploy/README.md.
 Environment secrets disimpan menggunakan environment variables atau secret management yang sesuai.
 Tidak dimasukkan ke source code atau repository.
 
@@ -724,7 +761,10 @@ POST /api/session/logout
 
 GET  /api/plans
 
-POST /api/payment/webhook   (ditunda, lihat FR-P06)
+GET  /api/checkout/config
+POST /api/checkout
+GET  /api/checkout/:orderId
+POST /api/payment/webhook   (notifikasi Midtrans, FR-P06)
 
 POST /api/usage/event
 
@@ -733,7 +773,7 @@ GET  /api/system/status
 Panel admin (FR-ADM), semua di bawah /api/super-admin:
 POST /auth/login, POST /auth/logout, GET /me, POST /me/password
 GET  /overview
-GET/POST /orders, GET /orders/:id, GET /orders/:id/proof
+GET/POST /orders, GET /orders/:id, GET /orders/:id/proof, POST /orders/:id/send-email
 GET  /codes, POST /codes/:id/regenerate, POST /codes/:id/disable, POST /codes/test
 GET/PATCH /plans, GET/PUT /settings
 GET/POST/PATCH /users, POST /users/:id/reset-password
@@ -956,6 +996,13 @@ Question Editing
 Document Generation
 
 36. Riwayat Perubahan
+2.3.1
+Deployment: Caddy menggantikan Nginx; PostgreSQL dipasang langsung di VPS; backup harian terenkripsi ke Google Drive (ADR-018, deploy/README.md).
+2.3.0
+Pembayaran otomatis melalui Midtrans Snap (FR-P06): checkout di halaman utama, notifikasi/webhook terverifikasi, kode akses dibuat otomatis dan dikirim ke email pembeli dalam email HTML bergambar.
+Pengukuran iklan dengan Meta Pixel dan Conversions API (FR-P07); sumber pembeli (utm, fbclid) tercatat di pesanan.
+Panel admin: status pesanan otomatis, filter, sumber pembeli, riwayat dan kirim ulang email, pengingat WhatsApp untuk checkout yang belum dibayar.
+Halaman /pembayaran/selesai dan /kebijakan-privasi. Alur WhatsApp (FR-P02) menjadi cadangan.
 2.2.0
 Seluruh dokumen (README, docs/, src/README.md, server/README.md, AGENTS.md, CLAUDE.md) disinkronkan dengan Panel Admin; folder Logbook/ ditambahkan untuk mencatat setiap perubahan.
 Ditambahkan Panel Admin di /super-admin (FR-ADM) dengan login tim (tabel users), tanpa registrasi; peran super_admin dan admin.

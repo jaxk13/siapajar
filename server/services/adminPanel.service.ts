@@ -6,6 +6,7 @@ import { proofContentType, resolveProofPath } from "../lib/paymentProof";
 import { normalizeWhatsapp, whatsappUrl } from "../lib/whatsapp";
 import * as accessCodes from "../repositories/accessCodes.repository";
 import * as audit from "../repositories/audit.repository";
+import * as deliveries from "../repositories/deliveries.repository";
 import * as orders from "../repositories/orders.repository";
 import * as plans from "../repositories/plans.repository";
 import { deleteSetting, getSetting, setSetting } from "../repositories/support.repository";
@@ -31,14 +32,19 @@ function mapOrderRow(r: orders.OrderListRow) {
     amountIdr: r.amount_idr,
     paymentMethod: r.payment_method,
     status: r.status,
+    buyerEmail: r.buyer_email,
+    provider: r.provider,
+    campaign: r.utm_campaign,
+    source: r.utm_source,
+    emailStatus: r.email_status,
     planName: r.plan_name,
     code: r.code_id ? { id: r.code_id, hint: r.code_hint, status: r.code_status, expiresAt: iso(r.code_expires_at) } : null,
     createdByName: r.created_by_name,
   };
 }
 
-export async function listOrders(search: string | null, limit: number, offset: number) {
-  const { rows, total } = await orders.list(getPool(), { search, limit, offset });
+export async function listOrders(search: string | null, filter: orders.OrderFilter | null, limit: number, offset: number) {
+  const { rows, total } = await orders.list(getPool(), { search, filter, limit, offset });
   return { orders: rows.map(mapOrderRow), total };
 }
 
@@ -69,18 +75,50 @@ export async function getOrderDetail(id: string) {
   if (!row) throw new AppError(404, "NOT_FOUND", "Pesanan tidak ditemukan.");
   const code = row.code_id ? await accessCodes.findListRow(pool, row.code_id) : null;
   const devices = row.code_id ? await accessCodes.listActiveDevices(pool, row.code_id) : [];
+  const deliveryRows = await deliveries.listForOrder(pool, id);
+  const a = row.attribution ?? {};
+  const unpaid = row.status === "pending" || row.status === "expired" || row.status === "failed";
   return {
     order: {
       ...mapOrderRow(row),
       paymentReference: row.payment_reference,
+      providerRef: row.provider_ref,
       note: row.note,
       paidAt: iso(row.paid_at),
       hasProof: Boolean(row.payment_proof_path),
       buyerWhatsappUrl: whatsappUrl(row.buyer_whatsapp),
+      // Prefilled follow-up for a checkout that was not paid.
+      reminderWhatsappUrl: unpaid ? whatsappUrl(row.buyer_whatsapp, buildReminderMessage(row.buyer_name, row.plan_name)) : null,
+      // Only the ad source is shown; Meta browser ids, IP and user agent stay internal.
+      attribution: {
+        source: a.utmSource ?? null,
+        medium: a.utmMedium ?? null,
+        campaign: a.utmCampaign ?? null,
+        content: a.utmContent ?? null,
+        term: a.utmTerm ?? null,
+        fromMetaAd: Boolean(a.fbclid || a.fbc),
+      },
     },
+    deliveries: deliveryRows.map((d) => ({
+      id: d.id,
+      channel: d.channel,
+      status: d.status,
+      error: d.error,
+      createdAt: d.created_at.toISOString(),
+      createdByName: d.created_by_name,
+    })),
     code: code ? mapCodeRow(code) : null,
     devices: devices.map((d) => ({ id: d.id, userAgent: d.user_agent, createdAt: d.created_at.toISOString(), lastSeenAt: d.last_seen_at.toISOString() })),
   };
+}
+
+function buildReminderMessage(buyerName: string, planName: string): string {
+  const firstName = buyerName.trim().split(/\s+/)[0] || buyerName;
+  return [
+    `Halo ${firstName}, kami dari SIAPAJAR.`,
+    `Kami lihat pembayaran paket ${planName} Anda belum selesai. Ada kendala yang bisa kami bantu?`,
+    "Jika ingin melanjutkan, silakan pilih paket lagi di siapajar.id/#harga. Kode akses dikirim otomatis ke email setelah pembayaran berhasil.",
+  ].join("\n\n");
 }
 
 export async function getOrderProof(id: string): Promise<{ data: Buffer; contentType: string }> {

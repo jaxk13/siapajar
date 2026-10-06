@@ -6,7 +6,12 @@ const BASE = "/super-admin";
 
 export type UserRole = "super_admin" | "admin";
 export type CodeStatus = "unused" | "active" | "expired" | "disabled";
-export type PaymentMethod = "bank_transfer" | "qris";
+export type PaymentMethod = "bank_transfer" | "qris" | "virtual_account" | "e_wallet" | "card" | "other";
+/** Methods an admin can record for a manual order. */
+export type ManualPaymentMethod = "bank_transfer" | "qris";
+export type OrderStatus = "pending" | "paid" | "fulfilled" | "cancelled" | "expired" | "failed";
+export type OrderFilter = "" | "paid" | "unpaid" | "closed";
+export type DeliveryStatus = "sent" | "failed" | "skipped";
 
 export interface AdminUser {
   id: string;
@@ -31,9 +36,25 @@ export interface OrderRow {
   buyerWhatsapp: string;
   amountIdr: number;
   paymentMethod: PaymentMethod | null;
-  status: string;
+  status: OrderStatus;
+  buyerEmail: string | null;
+  /** "midtrans" for automatic checkout; null for orders recorded by an admin. */
+  provider: string | null;
+  campaign: string | null;
+  source: string | null;
+  /** Latest attempt to email the code. */
+  emailStatus: DeliveryStatus | null;
   planName: string;
   code: CodeSummary | null;
+  createdByName: string | null;
+}
+
+export interface Delivery {
+  id: string;
+  channel: "email";
+  status: DeliveryStatus;
+  error: string | null;
+  createdAt: string;
   createdByName: string | null;
 }
 
@@ -65,11 +86,22 @@ export interface Device {
 export interface OrderDetail {
   order: OrderRow & {
     paymentReference: string | null;
+    providerRef: string | null;
     note: string | null;
     paidAt: string | null;
     hasProof: boolean;
     buyerWhatsappUrl: string;
+    reminderWhatsappUrl: string | null;
+    attribution: {
+      source: string | null;
+      medium: string | null;
+      campaign: string | null;
+      content: string | null;
+      term: string | null;
+      fromMetaAd: boolean;
+    };
   };
+  deliveries: Delivery[];
   code: CodeRow | null;
   devices: Device[];
 }
@@ -81,6 +113,7 @@ export interface IssuedCode {
   durationDays: number;
   maxDevices: number | null;
   orderId: string | null;
+  expiresAt: string | null;
   message: string;
   buyerWhatsappUrl: string | null;
 }
@@ -118,7 +151,15 @@ export interface ActivityRow {
 }
 
 export interface Overview {
-  orders: { ordersToday: number; ordersMonth: number; revenueMonth: number };
+  orders: {
+    ordersToday: number;
+    ordersMonth: number;
+    revenueMonth: number;
+    checkoutsMonth: number;
+    unpaidOpen: number;
+    closedMonth: number;
+    undeliveredPaid: number;
+  };
   codes: { active: number; unused: number; expiringSoon: number };
   recentOrders: OrderRow[];
 }
@@ -139,15 +180,17 @@ export const adminApi = {
     apiRequest<object>(`${BASE}/me/password`, { method: "POST", body: { currentPassword, newPassword } }),
 
   overview: () => apiRequest<Overview>(`${BASE}/overview`),
-  orders: (search: string, pageNumber: number) =>
-    apiRequest<{ orders: OrderRow[]; total: number }>(`${BASE}/orders${query({ search, page: pageNumber })}`),
+  orders: (search: string, status: OrderFilter, pageNumber: number) =>
+    apiRequest<{ orders: OrderRow[]; total: number }>(`${BASE}/orders${query({ search, status, page: pageNumber })}`),
   order: (id: string) => apiRequest<OrderDetail>(`${BASE}/orders/${id}`),
   orderProofUrl: (id: string) => `/api${BASE}/orders/${id}/proof`,
+  resendOrderEmail: (id: string, email: string) =>
+    apiRequest<{ status: DeliveryStatus; email: string }>(`${BASE}/orders/${id}/send-email`, { method: "POST", body: { email } }),
   createOrder: (data: {
     planId: string;
     buyerName: string;
     buyerWhatsapp: string;
-    paymentMethod: PaymentMethod;
+    paymentMethod: ManualPaymentMethod;
     paymentReference: string;
     note: string;
     proof: { dataBase64: string };

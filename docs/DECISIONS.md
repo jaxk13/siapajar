@@ -212,7 +212,7 @@ Changes to architecture or contracts should update the relevant documentation.
 
 ## ADR-011 — Manual Purchase and Code Delivery via WhatsApp
 
-Status: Accepted (PRD v2.1.0)
+Status: Accepted (PRD v2.1.0). The "no payment webhook" part is superseded by ADR-017; WhatsApp purchase remains the fallback.
 
 ### Decision
 
@@ -331,3 +331,61 @@ The admin team serves buyers from phones, tablets, and laptops. The CLI requires
 - Passwords use Node's built-in `scrypt` (no new dependency).
 - Plans and the admin WhatsApp number are edited in the panel; `npm run db:seed` no longer overwrites them unless `--overwrite` is passed.
 - The CLI remains for the first account and emergencies.
+
+---
+
+## ADR-017 — Automatic Payment via Midtrans, Code Delivery by Email, Meta Ad Measurement
+
+Status: Accepted (PRD v2.3.0, FR-P06, FR-P07). Supersedes the "no payment webhook" part of ADR-011 and the Skaler plan.
+
+### Decision
+
+- **Payment:** Midtrans Snap popup on the landing page. `POST /api/checkout` records a `pending` order (price from the server) and creates the Snap transaction. Midtrans calls `POST /api/payment/webhook`.
+- **Trust:** a notification is accepted only when its `signature_key` (SHA-512 of order id, status code, amount, server key) is valid, and the outcome is always read again from the Midtrans status API. The browser never marks an order paid. The result page may also ask Midtrans for the status of a pending order (throttled), so development works without a public webhook URL.
+- **Idempotency:** the order row is locked (`FOR UPDATE`) while it becomes `paid`; `access_codes.order_id` is unique and `orders.provider_ref` (Midtrans transaction id) is unique. Repeated or concurrent notifications produce one code.
+- **Delivery:** the plain code is emailed right after the transaction commits (HTML email with inline images, SMTP via `nodemailer`). Each attempt is stored in `order_deliveries` without the code. A failed email leaves the order `paid`; the admin resends from the panel, which issues a new code (codes are stored hashed and cannot be re-sent).
+- **Ad measurement:** Meta Pixel on public pages only, plus the Conversions API from the server for `InitiateCheckout` and `Purchase` with the same `event_id` as the browser event. Email and phone are SHA-256 hashed. IP and user agent are kept in `orders.attribution` only until the Purchase event is sent or the checkout closes. utm parameters and `fbclid` are stored per order for the admin panel.
+- **Fallback:** with empty Midtrans keys the landing page keeps the WhatsApp purchase flow (FR-P02).
+
+### Reason
+
+- Buyers receive their code within seconds, without waiting for the admin.
+- The admin panel already exists; one system keeps orders, codes, delivery status, and ad source together. Landing-page builders (Scalev, Konvert) were considered but either duplicate the panel or lack webhooks.
+- Server-side events keep Purchase counts accurate when the Pixel is blocked.
+
+### Consequence
+
+- Migration `003_automatic_payment`: order statuses `expired` and `failed`; payment methods `virtual_account`, `e_wallet`, `card`, `other`; `orders.buyer_email`, `orders.attribution`; table `order_deliveries`.
+- New dependency `nodemailer` (SMTP works with Mailpit locally and with any provider in production). Midtrans and Meta are called with `fetch` (no SDK).
+- Local development uses Midtrans sandbox, Mailpit (docker-compose), Meta Test Events, and `npm run payment:simulate`.
+- A privacy notice (`/kebijakan-privasi`) and a consent checkbox are required at checkout. The text needs a legal review before launch.
+- Automatic WhatsApp delivery is not included; the admin can still send codes via WhatsApp manually.
+- Refunds and chargebacks are handled manually (disable the code).
+
+---
+
+## ADR-018 — Deployment: Caddy, PM2, PostgreSQL on the VPS, Encrypted Daily Backup to Google Drive
+
+Status: Accepted (PRD v2.3.1). Replaces Nginx in the earlier deployment target.
+
+### Decision
+
+- **Reverse proxy:** Caddy terminates HTTPS (automatic Let's Encrypt certificates) and proxies to Node on `127.0.0.1:3000`. `TRUST_PROXY=1`.
+- **Process:** PM2, one process (`deploy/ecosystem.config.cjs`); in-memory rate limits require a single process.
+- **Database:** PostgreSQL 17 installed on the VPS from the official PostgreSQL apt repository, listening on localhost only. Docker stays for local development.
+- **Updates:** `deploy/deploy.sh` (pull → `npm ci` → migrate → build → reload → health check) on the branch checked out on the server.
+- **Backup:** `deploy/backup.sh` daily at 02:30 WIB: `pg_dump` (custom format), payment-proof files and `.env`, archived and encrypted with `age` for a public key whose private key is kept offline, uploaded to Google Drive with `rclone` (scope `drive.file`). Retention: 3 days local, 14 days `daily/`, ~13 months `monthly/`. Optional healthchecks.io ping on success/failure.
+
+### Reason
+
+- Caddy needs no certbot or renewal cron and has a short configuration.
+- One app and one database on one VPS: a native PostgreSQL has fewer moving parts, receives security updates through apt, and avoids Docker's published ports bypassing UFW.
+- Backups hold personal data (UU PDP), so they are encrypted before leaving the server; an off-site copy (Google Drive) survives loss of the VPS. `.env` is included because losing `ACCESS_CODE_PEPPER` would invalidate every sold access code.
+
+### Consequence
+
+- New folder `deploy/` (`README.md`, `Caddyfile`, `ecosystem.config.cjs`, `deploy.sh`, `backup.sh`).
+- Recovery point: up to 24 hours. Restore must be tested monthly (`deploy/README.md` §10.3).
+- The `age` private key and `ACCESS_CODE_PEPPER` must be stored in a password manager; without them backups or codes cannot be recovered.
+- Production `.env` sets `NODE_ENV=production`, so development CLIs (`payment:simulate`, `email:preview`) refuse to run there.
+

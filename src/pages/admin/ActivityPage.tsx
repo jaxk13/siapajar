@@ -32,7 +32,7 @@ export default function ActivityPage() {
                     {formatDateTime(a.createdAt)}
                   </time>
                   <p className="text-sm text-fg">
-                    <span className="font-semibold">{a.userName ?? "CLI server"}</span> {actionLabel(a.action).toLowerCase()}
+                    <span className="font-semibold">{a.userName ?? (a.action.startsWith("order.paid") ? "Sistem pembayaran" : "CLI server")}</span> {actionLabel(a.action).toLowerCase()}
                     <ActivityDetail row={a} />
                   </p>
                 </li>

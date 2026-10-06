@@ -22,16 +22,18 @@
 
 ### Deployment
 
-- Linux VPS
-- Nginx
+- Linux VPS (Ubuntu LTS)
+- Caddy (HTTPS, reverse proxy) — ADR-018
 - PM2
-- HTTPS
+- PostgreSQL installed on the VPS
+- Daily encrypted backup to Google Drive
+- Step-by-step guide: `deploy/README.md`
 
 ## 2. High-Level Architecture
 
 Internet
     ↓
-Nginx
+Caddy
     ↓
 React Frontend ↔ Express API
                     ↓
@@ -82,7 +84,7 @@ Responsible for:
 - usage logging;
 - plans for the pricing section;
 - admin panel API (`/api/super-admin`): admin team login, orders, access codes, plans, settings, team, audit log;
-- payment webhook (deferred, PRD FR-P06);
+- automatic purchase (ADR-017): checkout via Midtrans Snap, payment notification (`/api/payment/webhook`), access code by email (SMTP), Meta Conversions API;
 - system status;
 - future provider/API orchestration.
 
@@ -167,10 +169,28 @@ The admin team works in `/super-admin` with its own login (table `users`, no reg
 |---|---|---|
 | `/` | Landing page | public |
 | `/masuk` | Access code entry | public (redirects to `/app` when access is active) |
+| `/pembayaran/selesai` | Payment result (polls `GET /api/checkout/:orderId`) | public |
+| `/kebijakan-privasi` | Privacy notice | public |
 | `/app` | Application home | requires access |
 | `/app/parameter`, `/app/jalankan-ai`, `/app/impor`, `/app/editor`, `/app/kop`, `/app/export` | Existing workflow screens inside the app shell | requires access |
 | `/super-admin/*` | Admin panel (orders, codes, plans, team, settings, activity) | admin team login (ADR-016) |
 | anything else | Not found | public |
+
+### Automatic purchase (ADR-017)
+
+```
+Landing (#harga) ─ CheckoutDialog ─ POST /api/checkout ─ pending order + Midtrans Snap token
+        │                                                      │
+        └─ Midtrans popup (snap.js) ── buyer pays ──> Midtrans ─┴─ POST /api/payment/webhook
+                                                                    │ verify signature
+                                                                    │ GET status from Midtrans API
+                                                                    │ lock order → paid → new access code
+                                                                    ├─ email (nodemailer → SMTP) → fulfilled
+                                                                    └─ Meta Conversions API "Purchase"
+/pembayaran/selesai polls GET /api/checkout/:orderId (which also asks Midtrans while pending)
+```
+
+Layers: `routes/payment.ts` → `controllers/payment.controller.ts` → `services/payment.service.ts` (flow) and `services/codeDelivery.service.ts` (email + resend) → `lib/midtrans.ts`, `lib/mailer.ts`, `lib/metaConversions.ts`, `emails/accessCodeEmail.ts`. The Meta Pixel (`src/features/tracking/`) loads on public pages only, never in `/app` or `/super-admin`.
 
 Routing uses the History API without a router dependency. Express serves `index.html` for every non-`/api` path, so deep links and refresh work.
 
@@ -286,12 +306,13 @@ Production:
 Target:
 
 Internet
-→ HTTPS
-→ Nginx
-→ Node/Express + frontend
-→ PostgreSQL
+→ HTTPS (Caddy, automatic Let's Encrypt certificates)
+→ Node/Express + frontend (127.0.0.1:3000)
+→ PostgreSQL 17 on the same VPS (localhost only)
 
-PM2 manages the Node application process.
+PM2 manages the Node application process (one process: rate limits are in memory). `TRUST_PROXY=1` behind Caddy.
+
+Deployment files live in `deploy/`: `Caddyfile`, `ecosystem.config.cjs` (PM2), `deploy.sh` (pull → install → migrate → build → reload → health check), `backup.sh` (daily `pg_dump` + payment proofs + `.env`, encrypted with `age`, uploaded to Google Drive with `rclone`; 14 daily and ~13 monthly copies). See `deploy/README.md` and ADR-018.
 
 ## 12. Performance
 

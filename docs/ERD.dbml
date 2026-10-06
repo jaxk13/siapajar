@@ -15,7 +15,7 @@
 
 Project siapajar {
   database_type: 'PostgreSQL'
-  Note: 'SIAPAJAR.id MVP — access codes, sessions, plans, orders, usage logs, system settings, admin team (users).'
+  Note: 'SIAPAJAR.id MVP — access codes, sessions, plans, orders (manual + Midtrans), code deliveries, usage logs, system settings, admin team (users).'
 }
 
 // ----------------------------------------------------------------------------
@@ -30,15 +30,21 @@ Enum access_code_status {
 }
 
 Enum order_status {
-  pending   [note: 'Buyer contacted admin, payment not confirmed']
-  paid      [note: 'Payment confirmed by admin']
-  fulfilled [note: 'Access code created and sent to buyer']
-  cancelled [note: 'Cancelled / refunded']
+  pending   [note: 'Checkout created, payment not confirmed by Midtrans yet']
+  paid      [note: 'Payment confirmed; access code created but not delivered yet']
+  fulfilled [note: 'Access code created and delivered (email, or recorded manually by admin)']
+  cancelled [note: 'Cancelled / refunded (reserved)']
+  expired   [note: 'Checkout not paid before the Midtrans deadline (migration 003)']
+  failed    [note: 'Payment refused/cancelled, or the Midtrans transaction could not be created (migration 003)']
 }
 
 Enum payment_method {
-  bank_transfer
+  bank_transfer   [note: 'Manual orders']
   qris
+  virtual_account [note: 'Midtrans bank_transfer / echannel / permata (migration 003)']
+  e_wallet        [note: 'Midtrans gopay / shopeepay / ...']
+  card
+  other
 }
 
 Enum user_role {
@@ -80,14 +86,16 @@ Table orders {
   plan_id         uuid         [not null, ref: > plans.id]
   status          order_status [not null, default: 'pending']
   amount_idr      integer      [not null, note: 'Price snapshot at purchase time']
-  payment_method  payment_method [null, note: 'bank_transfer or qris (manual). NULL for future automatic payments']
-  payment_reference varchar(100) [null, note: 'Transfer/QRIS reference number, if any']
+  payment_method  payment_method [null, note: 'Manual: bank_transfer/qris. Midtrans: reported channel. NULL while unpaid']
+  payment_reference varchar(100) [null, note: 'Transfer/QRIS reference number, or Midtrans transaction id']
   payment_proof_path varchar(255) [null, note: 'Proof-of-payment file, relative to PAYMENT_PROOF_DIR. Private, never served publicly']
   buyer_name      varchar(150) [not null, note: 'Personal data. Never log']
   buyer_whatsapp  varchar(20)  [not null, note: 'Personal data, international format (62...). Never log or send to Telegram']
-  provider        varchar(50)  [null, note: 'Future automatic payment, e.g. skaler (PRD FR-P06)']
+  buyer_email     varchar(254) [null, note: 'Lowercase. Code is emailed here (automatic orders). Personal data. Never log']
+  attribution     jsonb        [null, note: 'utm*, fbclid, fbp, fbc; ip/userAgent only until the Meta Purchase event is sent. Personal data']
+  provider        varchar(50)  [null, note: 'midtrans for automatic checkout (PRD FR-P06, ADR-017); NULL = manual order']
   created_by      uuid         [null, ref: > users.id, note: 'Admin who recorded the order; NULL = created from the CLI']
-  provider_ref    varchar(150) [null, unique, note: 'Provider event/transaction id; unique = idempotent webhook']
+  provider_ref    varchar(150) [null, unique, note: 'Midtrans transaction id; unique = idempotent notification handling']
   note            text         [null, note: 'Admin note']
   paid_at         timestamptz  [null]
   fulfilled_at    timestamptz  [null, note: 'When the code was sent to the buyer']
@@ -98,9 +106,26 @@ Table orders {
     status
     created_at
     buyer_whatsapp
+    (status, created_at)
   }
 
-  Note: 'Purchase records. MVP: created by admin via CLI when a WhatsApp purchase is confirmed (PRD FR-P02, FR-P05).'
+  Note: 'Purchase records. Automatic: POST /api/checkout + Midtrans notification (FR-P06). Manual: admin panel after a WhatsApp payment (FR-P02, FR-P05).'
+}
+
+Table order_deliveries {
+  id         bigint      [pk, increment]
+  order_id   uuid        [not null, ref: > orders.id]
+  channel    varchar(20) [not null, note: 'email']
+  status     varchar(20) [not null, note: 'sent, failed, skipped (SMTP not configured)']
+  error      varchar(255) [null, note: 'SMTP error with email addresses removed']
+  created_by uuid        [null, ref: > users.id, note: 'Admin who resent; NULL = automatic after payment']
+  created_at timestamptz [not null, default: `now()`]
+
+  Indexes {
+    (order_id, created_at)
+  }
+
+  Note: 'Each attempt to deliver the access code (ADR-017). The code itself is never stored.'
 }
 
 Table access_codes {
@@ -212,8 +237,8 @@ Table user_sessions {
 
 Table audit_logs {
   id          bigint      [pk, increment]
-  user_id     uuid        [null, ref: > users.id, note: 'NULL = action from the CLI']
-  action      varchar(50) [not null, note: 'e.g. order.create, code.disable, code.regenerate, plan.update, user.create']
+  user_id     uuid        [null, ref: > users.id, note: 'NULL = action from the CLI, or the payment system (order.paid)']
+  action      varchar(50) [not null, note: 'e.g. order.create, order.paid, order.email_resend, code.disable, code.regenerate, plan.update, user.create']
   target_type varchar(30) [null, note: 'order, access_code, plan, user']
   target_id   uuid        [null]
   metadata    jsonb       [null, note: 'Small context (code hint, reason, before/after). Never full codes or passwords']

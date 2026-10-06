@@ -223,7 +223,7 @@ Do not claim verification that was not actually run.
 4. Stop (keeps data): `docker compose down`
 5. Reset (deletes local data): `docker compose down -v`
 
-pgAdmin (database GUI) starts together with PostgreSQL at http://localhost:5050 (localhost only). Sign in with `PGADMIN_DEFAULT_EMAIL` / `PGADMIN_DEFAULT_PASSWORD` from `.env`. The server "SIAPAJAR (local)" is pre-registered from `pgadmin/servers.json` (host `postgres`, port `5432`; inside Docker, not `localhost`). Run only the database with `docker compose up -d postgres`.
+Mailpit (email catcher) starts too: SMTP `localhost:1025`, inbox http://localhost:8025. pgAdmin (database GUI) starts together with PostgreSQL at http://localhost:5050 (localhost only). Sign in with `PGADMIN_DEFAULT_EMAIL` / `PGADMIN_DEFAULT_PASSWORD` from `.env`. The server "SIAPAJAR (local)" is pre-registered from `pgadmin/servers.json` (host `postgres`, port `5432`; inside Docker, not `localhost`). Run only the database with `docker compose up -d postgres`.
 
 The port is bound to `127.0.0.1` only. Schema changes still require tracked migrations (`DATABASE.md` §6).
 
@@ -235,6 +235,29 @@ After the database is running:
 9. Create a test access code in the admin panel (Kode Akses → Buat kode uji) or `npm run access:create -- --plan pro --test`
 
 New migrations go in `server/db/migrations/` as `NNN_description.sql`; never edit a migration that has already been applied.
+
+## 15a-2. Payment, Email, and Meta in Development (ADR-017)
+
+Everything runs in test mode locally: no real money, no email to real inboxes, no effect on ad statistics. Switching to production only changes `.env`.
+
+| Service | Development | Production |
+|---|---|---|
+| Midtrans | Sandbox keys (`MIDTRANS_IS_PRODUCTION=false`), pay with the Midtrans payment simulator | Production keys after account verification |
+| Email | Mailpit (`docker compose up -d`): SMTP `localhost:1025`, inbox http://localhost:8025 | SMTP of Resend/Brevo/…, sender domain with SPF/DKIM |
+| Meta | `META_TEST_EVENT_CODE` set: server events only under Events Manager → Test Events | Test code empty |
+| Webhook | Optional tunnel (`ngrok http 3000`) as Midtrans "Payment Notification URL" | `https://<domain>/api/payment/webhook` |
+
+Without any Midtrans keys the landing page keeps "Beli via WhatsApp". Plans priced 0 cannot be checked out; set a price in the admin panel (Paket & Harga) for sandbox tests.
+
+Without a tunnel, the result page `/pembayaran/selesai` still asks Midtrans for the status of a pending order, so a sandbox payment completes locally too.
+
+Useful commands:
+
+- `npm run payment:simulate -- --new --plan pro --email you@example.com` — checkout + payment without Midtrans: code, email (Mailpit), Meta Purchase (Test Events).
+- `npm run payment:simulate` — list pending checkouts; `-- <orderId> [--result paid|expired|failed]` to apply a result.
+- `npm run email:preview -- you@example.com` — sample access-code email.
+
+Email artwork lives in `server/emails/assets/` (`logo.svg`, `hero.svg` are the sources; `logo.png`, `hero.jpg` are attached inline). Email HTML must use tables and inline styles; check new layouts in Mailpit on desktop and phone width.
 
 ## 15b. Logbook
 

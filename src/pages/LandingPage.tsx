@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Check, CheckCircle2, CircleAlert, Copy, GripVertical, Pencil, UserCheck } from "lucide-react";
 import MarketingFooter from "../components/layout/MarketingFooter";
 import MarketingHeader from "../components/layout/MarketingHeader";
@@ -6,6 +7,8 @@ import Badge from "../components/ui/Badge";
 import { buttonClasses } from "../components/ui/Button";
 import Container from "../components/ui/Container";
 import PricingSection from "../features/plans/PricingSection";
+import { captureAttribution } from "../features/tracking/attribution";
+import { useMetaPixel } from "../features/tracking/metaPixel";
 import { Link, usePageTitle } from "../lib/router";
 
 // Content follows docs/PRD.md §3 (problems), §6 (workflow) and §9–16 (outputs).
@@ -81,6 +84,8 @@ const OUTPUTS = [
 
 export default function LandingPage() {
   usePageTitle("Susun naskah soal ujian lebih cepat");
+  useMetaPixel();
+  useEffect(captureAttribution, []);
 
   return (
     <div className="min-h-screen bg-canvas">

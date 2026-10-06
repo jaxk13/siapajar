@@ -20,7 +20,9 @@
     "access:list": "tsx server/scripts/access-cli.ts list",
     "access:disable": "tsx server/scripts/access-cli.ts disable",
     "user:create": "tsx server/scripts/user-cli.ts create",
-    "user:reset-password": "tsx server/scripts/user-cli.ts reset-password"
+    "user:reset-password": "tsx server/scripts/user-cli.ts reset-password",
+    "payment:simulate": "tsx server/scripts/payment-cli.ts simulate",
+    "email:preview": "tsx server/scripts/payment-cli.ts preview"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",
@@ -29,6 +31,7 @@
     "express": "^4.21.2",
     "lucide-react": "^0.546.0",
     "motion": "^12.23.24",
+    "nodemailer": "^10.0.14",
     "pg": "^8.23.0",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",

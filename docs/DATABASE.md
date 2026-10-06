@@ -5,18 +5,20 @@
 PostgreSQL is the server-side database for MVP data that requires persistence beyond the browser.
 
 - Local development: PostgreSQL 17 via `docker-compose.yml` (see `DEVELOPMENT.md` §15a).
-- Production: PostgreSQL on the VPS, not exposed to the public internet.
+- Production: PostgreSQL 17 installed on the VPS (not Docker), listening on localhost only. Daily encrypted backup to Google Drive (`deploy/backup.sh`, ADR-018); restore steps in `deploy/README.md` §10.
 
 The database is not the source of truth for the active question draft in MVP (ADR-002).
 
 **ERD:** [`docs/ERD.dbml`](ERD.dbml) is the diagram source. Paste it into https://dbdiagram.io/d to view it. Keep that file and this document in sync.
 
-Status: implemented. Migrations `server/db/migrations/001_initial_schema.sql` (core) and `002_admin_panel.sql` (admin team); seeder `server/db/seed.ts` (plans Instan and Pro).
+Status: implemented. Migrations `server/db/migrations/001_initial_schema.sql` (core), `002_admin_panel.sql` (admin team) and `003_automatic_payment.sql` (Midtrans checkout, email delivery, ad attribution; ADR-017); seeder `server/db/seed.ts` (plans Instan and Pro).
 
 ## 2. Overview
 
 ```
 plans ──< orders ──── access_codes ──< sessions
+            │
+            └──< order_deliveries   (email attempts, never the code)
   │                      │   ▲           │
   └──────────────────────┘   │           │
                          usage_logs ─────┘
@@ -64,24 +66,45 @@ Purpose: products shown on the pricing section of the landing page (PRD FR-P01).
 
 ### orders
 
-Purpose: purchase records (PRD FR-P02, FR-P05). In MVP, an admin records the order in the admin panel (`/super-admin/pesanan/baru`, or the CLI as a fallback) after confirming a WhatsApp payment.
+Purpose: purchase records (PRD FR-P02, FR-P05, FR-P06). Two sources:
+
+- **Automatic (Midtrans, ADR-017):** `POST /api/checkout` inserts a `pending` order with `provider = 'midtrans'`; the payment notification moves it to `paid` (code created) and `fulfilled` (code emailed), or to `expired` / `failed`.
+- **Manual:** an admin records a confirmed WhatsApp payment in the admin panel (`/super-admin/pesanan/baru`, or the CLI); inserted directly as `fulfilled`.
 
 | Column | Type | Notes |
 |---|---|---|
 | id | uuid PK | |
 | plan_id | uuid FK → plans | |
-| status | order_status | `pending` → `paid` → `fulfilled`, or `cancelled` |
+| status | order_status | `pending` → `paid` (code created) → `fulfilled` (code delivered); `pending` → `expired` (not paid in time) or `failed` (refused/cancelled); `cancelled` reserved |
 | amount_idr | integer | Price snapshot at purchase time |
-| payment_method | payment_method null | `bank_transfer` or `qris`. Null only for future automatic payments |
-| payment_reference | varchar(100) null | Transfer/QRIS reference number, if any |
+| payment_method | payment_method null | Manual: `bank_transfer`, `qris`. Midtrans: `qris`, `virtual_account`, `e_wallet`, `card`, `other`. Null while a checkout is unpaid |
+| payment_reference | varchar(100) null | Transfer/QRIS reference number, or the Midtrans transaction id |
 | payment_proof_path | varchar(255) null | Proof-of-payment file name inside `PAYMENT_PROOF_DIR` (see §4) |
 | buyer_name | varchar(150) | Personal data. Never log it |
 | buyer_whatsapp | varchar(20) | Personal data, international format (`62…`). Never log it or send it to Telegram |
-| provider | varchar(50) null | Future automatic payment (e.g. `skaler`, PRD FR-P06) |
-| provider_ref | varchar(150) null unique | Provider transaction/event id. The unique constraint makes webhook processing idempotent |
+| buyer_email | varchar(254) null | Lowercase. Where the code is emailed (automatic orders). Personal data. Never log it |
+| attribution | jsonb null | `utmSource`, `utmMedium`, `utmCampaign`, `utmContent`, `utmTerm`, `fbclid`, `fbp`, `fbc`; plus `ip`, `userAgent` only until the Meta Purchase event is sent or the checkout closes. Personal data. Never log it |
+| provider | varchar(50) null | `midtrans` for automatic checkout; null for manual orders |
+| provider_ref | varchar(150) null unique | Midtrans transaction id. The unique constraint backs idempotent notification handling |
 | note | text null | Admin note |
 | paid_at, fulfilled_at | timestamptz null | `fulfilled_at` = code sent to buyer |
 | created_at, updated_at | timestamptz | |
+
+Index `orders_status_created_idx (status, created_at)` serves the status filter and the overview counts (migration 003).
+
+### order_deliveries
+
+Purpose: each attempt to deliver an access code to the buyer (ADR-017). The code itself is never stored (codes are hashed), so a resend always issues a new code.
+
+| Column | Type | Notes |
+|---|---|---|
+| id | bigint identity PK | |
+| order_id | uuid FK → orders | |
+| channel | varchar(20) | `email` (only channel for now) |
+| status | varchar(20) | `sent`, `failed`, or `skipped` (SMTP not configured) |
+| error | varchar(255) null | SMTP error with email addresses removed |
+| created_by | uuid FK → users null | Admin who resent; `NULL` = automatic after payment |
+| created_at | timestamptz | |
 
 ### access_codes
 
@@ -188,8 +211,8 @@ Purpose: who did what in the admin panel.
 | Column | Type | Notes |
 |---|---|---|
 | id | bigint identity PK | |
-| user_id | uuid FK → users null | `NULL` = action from the CLI |
-| action | varchar(50) | `login`, `order.create`, `code.create_test`, `code.disable`, `code.regenerate`, `plan.update`, `settings.update`, `user.create`, `user.update`, `user.reset_password`, `user.change_password` |
+| user_id | uuid FK → users null | `NULL` = action from the CLI, or the payment system for `order.paid` |
+| action | varchar(50) | `login`, `order.create`, `order.paid` (automatic payment), `order.email_resend`, `code.create_test`, `code.disable`, `code.regenerate`, `plan.update`, `settings.update`, `user.create`, `user.update`, `user.reset_password`, `user.change_password` |
 | target_type, target_id | null | e.g. `order` + order id |
 | metadata | jsonb null | Small context (code hint, reason, before/after). Never full codes or passwords |
 | created_at | timestamptz | |
@@ -209,7 +232,7 @@ Access code:
 - Generated by the server with a cryptographically secure random generator (`crypto.randomBytes`).
 - Format: `SPJR-XXXX-XXXX-XXXX` using an unambiguous alphabet (no `0/O`, `1/I/L`), about 60 bits of randomness. Easy to copy from WhatsApp.
 - Stored as `HMAC-SHA256(normalized_code, ACCESS_CODE_PEPPER)` in hex. `ACCESS_CODE_PEPPER` is an environment variable, not in the database. A deterministic hash is used (instead of bcrypt) because the code must be looked up by its hash; the code's randomness plus rate limiting (SEC-04) makes guessing impractical.
-- Shown only once, when the admin creates it.
+- Shown only once, when the admin creates it, or sent once by email right after an automatic payment.
 
 Session:
 

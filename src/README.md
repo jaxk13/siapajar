@@ -39,6 +39,8 @@ Halaman `/app/*` dan `/super-admin/*` membutuhkan backend + database. Lihat [`se
 |---|---|---|---|
 | `/` | `pages/LandingPage.tsx` | Publik | Hero, masalah, cara kerja (`#cara-kerja`), hasil dokumen (`#hasil-dokumen`), harga (`#harga`), cara mendapatkan kode (`#kode-akses`), ajakan masuk |
 | `/masuk` | `pages/AccessPage.tsx` | Publik | Form kode akses. Jika sesi aktif → `/app` |
+| `/pembayaran/selesai?order=<id>` | `pages/PaymentResultPage.tsx` | Publik | Status pembayaran Midtrans (diperbarui otomatis): menunggu, berhasil (kode dikirim ke email), kedaluwarsa/gagal |
+| `/kebijakan-privasi` | `pages/PrivacyPage.tsx` | Publik | Kebijakan privasi pembeli (dirujuk dari form checkout) |
 | `/app` | `pages/AppPage.tsx` → `pages/AppHome.tsx` | Sesi guru | Ringkasan draf, alur penyusunan |
 | `/app/parameter` | `AppPage` → `components/PromptStep.tsx` | Sesi guru | Parameter soal + prompt siap salin |
 | `/app/jalankan-ai` | `AppPage` → `components/AIStep.tsx` | Sesi guru | Salin prompt, buka AI eksternal, tempel cepat hasil AI |
@@ -67,9 +69,9 @@ Login dan sesi terpisah dari guru. Diatur di `pages/admin/AdminRoutes.tsx` + `fe
 |---|---|---|---|
 | `/super-admin/masuk` | `pages/admin/AdminLoginPage.tsx` | Publik | Login tim (email + password); tanpa registrasi |
 | `/super-admin` | `pages/admin/AdminOverviewPage.tsx` | Admin | Ringkasan + pesanan terbaru |
-| `/super-admin/pesanan` | `pages/admin/OrdersPage.tsx` | Admin | Daftar & cari pesanan (nama, WA, 4 karakter kode) |
+| `/super-admin/pesanan?status=` | `pages/admin/OrdersPage.tsx` | Admin | Daftar & cari pesanan (nama, email, WA, 4 karakter kode); filter Lunas / Menunggu bayar / Kedaluwarsa-gagal |
 | `/super-admin/pesanan/baru` | `pages/admin/OrderCreatePage.tsx` | Admin | Buat pesanan + unggah bukti → kode → Kirim via WhatsApp |
-| `/super-admin/pesanan/:id` | `pages/admin/OrderDetailPage.tsx` | Admin | Detail, bukti transaksi, perangkat aktif, ganti/nonaktifkan kode |
+| `/super-admin/pesanan/:id` | `pages/admin/OrderDetailPage.tsx` | Admin | Detail, status, email, sumber pembeli (utm/iklan Meta), riwayat email, kirim ulang via email, ingatkan via WA (belum bayar), bukti transaksi (manual), perangkat aktif, ganti/nonaktifkan kode |
 | `/super-admin/kode` | `pages/admin/CodesPage.tsx` | Admin | Semua kode, filter status, kode uji (super admin) |
 | `/super-admin/paket` | `pages/admin/PlansPage.tsx` | Super admin | Paket & harga |
 | `/super-admin/tim` | `pages/admin/TeamPage.tsx` | Super admin | Tim admin |
@@ -98,6 +100,8 @@ src/
 ├── features/
 │   ├── access/                kode akses & sesi guru
 │   ├── plans/                 harga & section Harga
+│   ├── checkout/              checkout Midtrans (form + popup Snap)
+│   ├── tracking/              Meta Pixel & sumber iklan (halaman publik saja)
 │   ├── admin/                 API & komponen panel admin
 │   ├── import/                parser hasil AI
 │   └── export/                generator dokumen Word
@@ -117,6 +121,8 @@ src/
 |---|---|
 | `LandingPage.tsx` | Konten landing page (PRD §3, §6, §9–16) + pratinjau kartu soal dan lembar naskah (statis) |
 | `AccessPage.tsx` | Form kode akses, validasi, pesan error dari backend |
+| `PaymentResultPage.tsx` | Hasil pembayaran: polling status (4 dtk lalu 15 dtk, berhenti 30 menit), event Pixel `Purchase` sekali per pesanan |
+| `PrivacyPage.tsx` | Kebijakan privasi (teks perlu ditinjau sebelum rilis) |
 | `AppPage.tsx` | State draf (soal, kop, pengaturan, tema), simpan ke localStorage, pemetaan URL → layar langkah, Keluar & Atur ulang data |
 | `AppHome.tsx` | Isi `/app`: ringkasan draf atau keadaan kosong, daftar alur |
 | `NotFoundPage.tsx` | 404 |
@@ -189,12 +195,17 @@ Layar dari prototipe awal; belum memakai token desain baru dan dirapikan di fase
 | `access/accessService.ts` | `POST /api/access/activate`, `GET /api/session`, `POST /api/session/logout` |
 | `access/AccessProvider.tsx` | State akses guru: `status`, `session` (masa aktif, paket), `activate()`, `logout()` |
 | `plans/plansService.ts` | `GET /api/plans`; format Rupiah & nomor WA; link WhatsApp |
-| `plans/PricingSection.tsx` | Section Harga: kartu paket, Beli via WhatsApp, langkah pembelian, kontak admin |
+| `plans/PricingSection.tsx` | Section Harga: kartu paket, **Beli Sekarang** (checkout otomatis) atau Beli via WhatsApp (jika Midtrans belum aktif), langkah pembelian, kontak admin, event Pixel `ViewContent` |
+| `checkout/checkoutService.ts` | `GET /api/checkout/config` (sekali per halaman), `POST /api/checkout`, `GET /api/checkout/:id`, memuat snap.js, ingat URL pembayaran |
+| `checkout/CheckoutDialog.tsx` | Form nama, email, WA, persetujuan → buat pesanan → event Pixel `InitiateCheckout` → popup Midtrans (dialog ditutup dulu karena `<dialog>` menutupi popup) |
+| `tracking/metaPixel.ts` | Memuat Pixel (hanya jika `metaPixelId` ada), `useMetaPixel()` (PageView), `trackPixel()`, `trackPurchaseOnce()`. Event id sama dengan server |
+| `tracking/attribution.ts` | Menyimpan `utm_*` & `fbclid` dari URL (7 hari), membaca cookie `_fbp`/`_fbc` untuk checkout |
 | `admin/adminApi.ts` | Semua pemanggilan `/api/super-admin` + tipe datanya |
 | `admin/AdminProvider.tsx` | State login admin, `handleAuthError()` (sesi habis / wajib ganti password), `useAdminQuery()` untuk memuat data halaman |
 | `admin/components.tsx` | Status kode, panel kode baru (salin / kirim WA), pencarian, halaman, `Panel`, `Field`, loading/error |
 | `admin/CodeActions.tsx` | Tombol + dialog **Ganti kode** dan **Nonaktifkan** |
-| `admin/OrderList.tsx` | Daftar pesanan responsif |
+| `admin/OrderList.tsx` | Daftar pesanan responsif (status, email, kampanye) |
+| `admin/ResendEmailButton.tsx` | Tombol + dialog **Kirim ulang via email** (kode baru, email bisa diperbaiki) |
 | `admin/format.ts` | Format tanggal (WIB), Rupiah, WA; label status/peran/aktivitas; nama perangkat; baca file → base64 |
 | `import/parser.ts` | Teks tabel hasil AI → data soal; data demo |
 | `export/exportWord.ts` | File Word (`.doc`) dari data soal |
@@ -210,7 +221,10 @@ Semua lewat `lib/apiClient.ts`. Kontrak: [`docs/API.md`](../docs/API.md).
 | `GET /api/session` | `features/access/accessService.ts` | Saat aplikasi dibuka |
 | `POST /api/access/activate` | `features/access/accessService.ts` | Submit `/masuk` |
 | `POST /api/session/logout` | `features/access/accessService.ts` | Tombol Keluar (guru) |
-| `GET /api/plans` | `features/plans/plansService.ts` | Section Harga |
+| `GET /api/plans` | `features/plans/plansService.ts` | Section Harga, halaman hasil pembayaran (kontak admin) |
+| `GET /api/checkout/config` | `features/checkout/checkoutService.ts` | Landing, hasil pembayaran, kebijakan privasi (Pixel + status checkout) |
+| `POST /api/checkout` | `features/checkout/checkoutService.ts` | Submit form checkout |
+| `GET /api/checkout/:orderId` | `features/checkout/checkoutService.ts` | `/pembayaran/selesai` (polling) |
 | `/api/super-admin/*` | `features/admin/adminApi.ts` | Semua halaman `/super-admin` |
 
 Token sesi guru dan admin ada di cookie HttpOnly. Frontend **tidak pernah** membaca atau menyimpan token.
@@ -231,6 +245,16 @@ Draf soal disimpan di browser, bukan di server (Local First, ADR-002). Diatur di
 | `siapajar_theme` | Tema terang/gelap aplikasi guru |
 
 Key lama `siapajar_access_code` otomatis dihapus. Panel admin tidak menyimpan apa pun di localStorage.
+
+Halaman publik (pembelian):
+
+| Key | Tempat | Isi |
+|---|---|---|
+| `siapajar_attribution` | localStorage | `utm_*`/`fbclid` terakhir + waktu simpan (berlaku 7 hari) |
+| `siapajar_purchase_tracked_<orderId>` | localStorage | Penanda event Pixel `Purchase` sudah dikirim |
+| `siapajar_payment_url_<orderId>` | sessionStorage | URL pembayaran Midtrans untuk tombol "Lanjutkan pembayaran" |
+
+Semua akses storage dibungkus `try/catch`; tanpa storage, pembelian tetap berjalan (hanya sumber iklan yang hilang).
 
 > Rencana (PRD FR-G01): key akan diringkas menjadi `siapajar_current_draft`, `siapajar_school_header`, `siapajar_preferences` dengan versi skema.
 

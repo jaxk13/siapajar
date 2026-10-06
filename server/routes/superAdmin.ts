@@ -24,6 +24,7 @@ superAdminRouter.get("/orders", signedIn, h(admin.getOrders));
 superAdminRouter.post("/orders", signedIn, h(admin.postOrder));
 superAdminRouter.get("/orders/:id", signedIn, h(admin.getOrder));
 superAdminRouter.get("/orders/:id/proof", signedIn, h(admin.getOrderProof));
+superAdminRouter.post("/orders/:id/send-email", signedIn, rateLimit({ windowMs: 60_000, max: 10 }), h(admin.postResendEmail));
 superAdminRouter.get("/codes", signedIn, h(admin.getCodes));
 superAdminRouter.get("/codes/:id", signedIn, h(admin.getCode));
 superAdminRouter.post("/codes/:id/disable", signedIn, h(admin.postDisableCode));

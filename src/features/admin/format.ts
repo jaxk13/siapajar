@@ -1,4 +1,4 @@
-import type { CodeStatus, PaymentMethod, UserRole } from "./adminApi";
+import type { CodeStatus, DeliveryStatus, OrderStatus, PaymentMethod, UserRole } from "./adminApi";
 
 export { formatRupiah, formatWhatsapp } from "../plans/plansService";
 
@@ -14,7 +14,29 @@ export function formatDateTime(iso: string | null): string {
   return new Date(iso).toLocaleString("id-ID", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: TZ });
 }
 
-export const PAYMENT_LABELS: Record<PaymentMethod, string> = { bank_transfer: "Transfer bank", qris: "QRIS" };
+export const PAYMENT_LABELS: Record<PaymentMethod, string> = {
+  bank_transfer: "Transfer bank",
+  qris: "QRIS",
+  virtual_account: "Virtual account",
+  e_wallet: "E-wallet",
+  card: "Kartu",
+  other: "Lainnya",
+};
+
+export const ORDER_STATUS: Record<OrderStatus, { label: string; tone: "brand" | "neutral" | "outline" | "danger" }> = {
+  pending: { label: "Menunggu bayar", tone: "outline" },
+  paid: { label: "Lunas, kode belum terkirim", tone: "danger" },
+  fulfilled: { label: "Lunas", tone: "brand" },
+  expired: { label: "Kedaluwarsa", tone: "neutral" },
+  failed: { label: "Gagal", tone: "neutral" },
+  cancelled: { label: "Dibatalkan", tone: "neutral" },
+};
+
+export const DELIVERY_STATUS: Record<DeliveryStatus, string> = {
+  sent: "Terkirim",
+  failed: "Gagal",
+  skipped: "Dilewati (email belum diatur)",
+};
 
 export const ROLE_LABELS: Record<UserRole, string> = { super_admin: "Super admin", admin: "Admin" };
 
@@ -28,6 +50,8 @@ export const CODE_STATUS: Record<CodeStatus, { label: string; tone: "brand" | "n
 const ACTION_LABELS: Record<string, string> = {
   login: "Masuk ke panel admin",
   "order.create": "Membuat pesanan dan kode akses",
+  "order.paid": "Menerima pembayaran otomatis dan membuat kode akses",
+  "order.email_resend": "Mengirim ulang kode akses lewat email",
   "code.create_test": "Membuat kode uji",
   "code.disable": "Menonaktifkan kode akses",
   "code.regenerate": "Mengganti kode akses",

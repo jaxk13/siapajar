@@ -1,0 +1,38 @@
+# SIAPAJAR — Caddy reverse proxy (deploy/README.md §6, ADR-018).
+# Copy to /etc/caddy/Caddyfile, replace the domain and email, then: sudo systemctl reload caddy
+# Caddy obtains and renews the HTTPS certificate automatically (ports 80 and 443 must be open).
+
+{
+	# Let's Encrypt notices (expiry problems). Use a mailbox you read.
+	email admin@siapajar.id
+}
+
+siapajar.id {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		# Other sites may not frame SIAPAJAR. The Midtrans popup is a frame inside our page, so it is not affected.
+		X-Frame-Options "SAMEORIGIN"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		-Server
+	}
+
+	# Node/Express listens on localhost only (HOST=127.0.0.1 in .env). Set TRUST_PROXY=1 so rate limits see the client IP.
+	reverse_proxy 127.0.0.1:3000
+
+	log {
+		output file /var/log/caddy/siapajar.log {
+			roll_size 10MiB
+			roll_keep 10
+		}
+		format json
+	}
+}
+
+# Optional: www → main domain. Remove this block if www has no DNS record.
+www.siapajar.id {
+	redir https://siapajar.id{uri} permanent
+}

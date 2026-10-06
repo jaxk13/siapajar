@@ -19,7 +19,7 @@ Backend Express yang melayani API di `/api/*` dan sekaligus menyajikan frontend 
 | Migration & seeder | File SQL + runner sendiri (`db/migrate.ts`, `db/seed.ts`) |
 | Development | `tsx` (TypeScript langsung) + Vite middleware |
 | Production | `esbuild` → `dist/server.cjs`, menyajikan `dist/` |
-| Dependency tambahan | Tidak ada library auth, cookie, rate limit, atau upload: semuanya kecil dan dibuat sendiri |
+| Dependency tambahan | `nodemailer` (kirim email SMTP). Tidak ada library auth, cookie, rate limit, upload, atau SDK Midtrans/Meta: semuanya kecil dan dibuat sendiri (`fetch` bawaan Node) |
 
 Tanggung jawab backend:
 
@@ -61,6 +61,8 @@ npm start                   # NODE_ENV=production, menyajikan dist/
 | `npm run access:create -- ...` | Membuat kode akses (pesanan atau `--test`) |
 | `npm run access:list -- [--status ...]` | Daftar kode akses |
 | `npm run access:disable -- <kode / 4 karakter / id>` | Menonaktifkan kode akses |
+| `npm run payment:simulate -- ...` | **Development:** daftar checkout pending, tandai lunas/kedaluwarsa/gagal tanpa Midtrans, atau `--new --plan pro --email ...` (checkout + bayar + email). Ditolak di production |
+| `npm run email:preview -- <email>` | **Development:** kirim contoh email kode akses (ke Mailpit) |
 
 ---
 
@@ -83,6 +85,10 @@ Semua path non-`/api` dikirim ke frontend (`index.html`).
 | `GET` | `/api/system/status` | Publik | — | `system.controller.getStatus` → `system.service` | Status server |
 | `GET` | `/api/plans` | Publik | — | `plans.controller.getPlans` → `plans.service.getPublicPlans` | Paket aktif + kontak WA admin |
 | `POST` | `/api/access/activate` | Publik | `rateLimit` 5×/menit/IP | `access.controller.postActivate` → `access.service.activateAccessCode` | Validasi & aktivasi kode, buat sesi + cookie `siapajar_session` |
+| `GET` | `/api/checkout/config` | Publik | — | `payment.controller.getCheckoutConfig` → `payment.service` | Checkout aktif?, client key Midtrans, URL snap.js, Pixel ID |
+| `POST` | `/api/checkout` | Publik | `rateLimit` 10×/10 menit/IP | `payment.controller.postCheckout` → `payment.service.createCheckout` | Pesanan `pending` + token Snap Midtrans + event Meta `InitiateCheckout` |
+| `GET` | `/api/checkout/:orderId` | Publik | `rateLimit` 40×/menit/IP | `payment.controller.getCheckoutStatus` → `payment.service.getCheckoutStatus` | Status untuk `/pembayaran/selesai` (menanyakan Midtrans selama masih pending) |
+| `POST` | `/api/payment/webhook` | Midtrans (tanda tangan) | — | `payment.controller.postMidtransWebhook` → `payment.service.handleMidtransNotification` | Notifikasi pembayaran: verifikasi, cek status ke Midtrans, buat kode, kirim email, event `Purchase` |
 | `GET` | `/api/session` | Sesi guru | `requireSession` | `access.controller.getCurrentSession` | Masa aktif & paket |
 | `POST` | `/api/session/logout` | — | — | `access.controller.postLogout` → `access.service.endSession` | Akhiri sesi, hapus cookie |
 | `*` | `/api/<lainnya>` | — | `apiNotFound` | — | `404 NOT_FOUND` (JSON) |
@@ -98,10 +104,11 @@ Semua lewat `sameOrigin` (tolak permintaan dari situs lain / non-JSON). Cookie `
 | `GET` | `/me` | Masuk* | — | Akun yang sedang masuk |
 | `POST` | `/me/password` | Masuk* | `adminAuth.changeOwnPassword` | Ganti password sendiri |
 | `GET` | `/overview` | Admin | `adminPanel.getOverview` | Ringkasan |
-| `GET` | `/orders?search=&page=` | Admin | `adminPanel.listOrders` | Daftar & cari pesanan |
+| `GET` | `/orders?search=&status=&page=` | Admin | `adminPanel.listOrders` | Daftar & cari pesanan; filter `paid` / `unpaid` / `closed` |
 | `POST` | `/orders` | Admin | `adminAccess.createOrderWithCode` | Buat pesanan + simpan bukti + buat kode |
 | `GET` | `/orders/:id` | Admin | `adminPanel.getOrderDetail` | Detail pesanan, kode, perangkat aktif |
 | `GET` | `/orders/:id/proof` | Admin | `adminPanel.getOrderProof` | File bukti transaksi |
+| `POST` | `/orders/:id/send-email` | Admin, `rateLimit` 10×/menit | `codeDelivery.resendCodeEmail` | Kode baru untuk pesanan lalu kirim ke email (alamat bisa diperbaiki) |
 | `GET` | `/codes?status=&search=&page=`, `/codes/:id` | Admin | `adminPanel.listCodes` / `getCodeDetail` | Daftar & detail kode |
 | `POST` | `/codes/:id/regenerate` | Admin | `adminAccess.regenerateCode` | Ganti kode (kode hilang; masa aktif tetap) |
 | `POST` | `/codes/:id/disable` | Admin | `adminAccess.disableCodeById` | Nonaktifkan kode (wajib alasan) |
@@ -132,6 +139,9 @@ Semua lewat `sameOrigin` (tolak permintaan dari situs lain / non-JSON). Cookie `
 | 409 | `EMAIL_TAKEN` | Email anggota tim sudah dipakai |
 | 413 | `PAYLOAD_TOO_LARGE` | Body > 100 KB (atau > 7 MB untuk `POST /api/super-admin/orders`) |
 | 415 | `UNSUPPORTED_MEDIA_TYPE` | Permintaan admin bukan JSON |
+| 403 | `INVALID_SIGNATURE` | Notifikasi Midtrans dengan tanda tangan salah |
+| 502 | `PAYMENT_PROVIDER_ERROR` | Midtrans menolak/tidak bisa dihubungi saat checkout |
+| 503 | `PAYMENT_UNAVAILABLE` | Key Midtrans belum diisi (checkout nonaktif) |
 | 429 | `RATE_LIMITED` | Terlalu banyak percobaan (header `Retry-After`) |
 | 500 | `INTERNAL_ERROR` | Error tak terduga; detail hanya di log server |
 
@@ -140,7 +150,6 @@ Semua lewat `sameOrigin` (tolak permintaan dari situs lain / non-JSON). Cookie `
 | Method | Path | Fase |
 |---|---|---|
 | `POST` | `/api/usage/event` | 9 |
-| `POST` | `/api/payment/webhook` | Ditunda (PRD FR-P06) |
 | `POST` | `/api/ai/generate` | Bukan MVP (PRD FR-C03) |
 
 ---
@@ -202,11 +211,13 @@ server/
 | `plans.ts` | `/plans` |
 | `access.ts` | `/access/activate`, `/session`, `/session/logout` |
 | `superAdmin.ts` | Semua route `/api/super-admin` + guard peran |
+| `payment.ts` | `/checkout/*`, `/payment/webhook` |
 | **controllers/** | |
 | `system.controller.ts` | Respons health & status |
 | `plans.controller.ts` | Respons daftar paket |
 | `access.controller.ts` | Validasi aktivasi, pasang/hapus cookie sesi guru |
 | `admin.controller.ts` | Validasi input & respons panel admin (termasuk header aman untuk file bukti) |
+| `payment.controller.ts` | Validasi checkout (persetujuan, email, WA, atribusi iklan) dan webhook |
 | **services/** | |
 | `system.service.ts` | Data status server |
 | `plans.service.ts` | Paket publik + link WA admin |
@@ -215,9 +226,12 @@ server/
 | `adminUsers.service.ts` | Tim admin: buat, ubah, nonaktifkan, reset password; menjaga minimal satu super admin aktif |
 | `adminAccess.service.ts` | Pesanan + kode, kode uji, ganti kode, nonaktifkan — dipakai panel **dan** CLI |
 | `adminPanel.service.ts` | Ringkasan, daftar/detail pesanan & kode, paket, pengaturan, riwayat aktivitas |
+| `payment.service.ts` | Alur pembelian otomatis: checkout, status, notifikasi Midtrans (idempoten), kode otomatis, event Meta; `simulatePayment` untuk CLI |
+| `codeDelivery.service.ts` | Kirim kode lewat email + catat di `order_deliveries`; kirim ulang dari panel (kode baru) |
 | **repositories/** | |
 | `plans.repository.ts` | Tabel `plans` |
-| `orders.repository.ts` | Tabel `orders` (+ pencarian, ringkasan pendapatan) |
+| `orders.repository.ts` | Tabel `orders` (+ pencarian, filter status, checkout pending, ringkasan) |
+| `deliveries.repository.ts` | Tabel `order_deliveries` |
 | `accessCodes.repository.ts` | Tabel `access_codes` (+ pencarian, perangkat aktif, ringkasan) |
 | `sessions.repository.ts` | Tabel `sessions` (sesi guru) |
 | `users.repository.ts` | Tabel `users` dan `user_sessions` |
@@ -239,17 +253,25 @@ server/
 | `paymentProof.ts` | Cek jenis file dari isinya, simpan/hapus/baca bukti transaksi |
 | `codeMessage.ts` | Teks pesan WA berisi kode akses (sama untuk panel dan CLI) |
 | `whatsapp.ts` | Normalisasi nomor WA (`08…` → `628…`) dan link `wa.me` |
+| `midtrans.ts` | Snap (buat transaksi), cek status, verifikasi tanda tangan, pemetaan status & metode bayar |
+| `mailer.ts` | Kirim email lewat SMTP (`nodemailer`) |
+| `metaConversions.ts` | Meta Conversions API (email/telepon di-hash SHA-256) |
+| **emails/** | |
+| `accessCodeEmail.ts` | Email HTML kode akses (tabel + inline style, gambar inline `cid:`) + versi teks |
+| `assets/` | `logo.png`, `hero.jpg` (dilampirkan inline); sumbernya `logo.svg`, `hero.svg` |
 | **db/** | |
 | `pool.ts` | Koneksi PostgreSQL (dibuat saat pertama dipakai), `withTransaction()`, `describeDbError()` |
 | `migrate.ts` | Menjalankan `migrations/*.sql` berurutan; dicatat di `schema_migrations` |
 | `migrations/001_initial_schema.sql` | `plans`, `orders`, `access_codes`, `sessions`, `usage_logs`, `system_settings` |
 | `migrations/002_admin_panel.sql` | `users`, `user_sessions`, `audit_logs` + kolom `created_by`/`disabled_by` |
+| `migrations/003_automatic_payment.sql` | Status `expired`/`failed`, metode bayar Midtrans, `buyer_email`, `attribution`, tabel `order_deliveries` |
 | `seed.ts` | Seeder: paket, `admin_whatsapp`, super admin; opsi `--overwrite`, `--only admin` |
 | `seeds/plans.ts` | Data awal paket Instan & Pro |
 | `seeds/users.ts` | Membaca & memvalidasi `SEED_ADMIN_*` (email/password tidak disimpan di repo) |
 | **scripts/** | |
 | `access-cli.ts` | CLI kode akses: `create`, `list`, `disable` |
 | `user-cli.ts` | CLI akun admin: `create`, `reset-password` |
+| `payment-cli.ts` | Development: `simulate` (pembayaran tanpa Midtrans), `preview` (contoh email) |
 
 ---
 
@@ -312,11 +334,16 @@ Dibaca di `config/env.ts`. Contoh lengkap: [`.env.example`](../.env.example).
 | `DATABASE_URL` | Ya | Koneksi PostgreSQL (server, migration, seeder, CLI) |
 | `ACCESS_CODE_PEPPER` | Ya | Secret hash kode akses. **Jangan diubah** setelah kode dibagikan |
 | `PORT`, `HOST` | Tidak | Default `3000`, `0.0.0.0` |
-| `TRUST_PROXY` | Production | `1` di belakang Nginx |
+| `TRUST_PROXY` | Production | `1` di belakang Caddy (lihat [`deploy/README.md`](../deploy/README.md)) |
 | `PAYMENT_PROOF_DIR` | Tidak | Folder bukti transaksi (default `storage/payment-proofs`) |
 | `ADMIN_WHATSAPP` | Tidak | Nilai awal nomor WA admin untuk seeder |
 | `SEED_ADMIN_NAME`, `SEED_ADMIN_EMAIL`, `SEED_ADMIN_PASSWORD` | Tidak | Super admin pertama untuk seeder; password hanya untuk development |
 | `POSTGRES_*`, `PGADMIN_*` | Docker | Dipakai `docker-compose.yml` (password keduanya wajib) |
+| `APP_URL` | Production | Alamat publik untuk link di email & redirect Midtrans (default `http://localhost:<PORT>`) |
+| `MIDTRANS_IS_PRODUCTION`, `MIDTRANS_SERVER_KEY`, `MIDTRANS_CLIENT_KEY` | Tidak | Kosong = checkout nonaktif (landing tetap "Beli via WhatsApp"). Development: key sandbox |
+| `EMAIL_FROM`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS` | Tidak | Kosong `SMTP_HOST` = email dilewati (tercatat `skipped`). Development: Mailpit `localhost:1025` |
+| `META_PIXEL_ID`, `META_CAPI_TOKEN`, `META_TEST_EVENT_CODE`, `META_GRAPH_VERSION` | Tidak | Kosong = tanpa pelacakan. Test event code hanya untuk uji (kosongkan di production) |
+| `MAILPIT_SMTP_PORT`, `MAILPIT_UI_PORT` | Docker | Port Mailpit di komputer lokal |
 
 ---
 
@@ -325,7 +352,8 @@ Dibaca di `config/env.ts`. Contoh lengkap: [`.env.example`](../.env.example).
 | Tabel | Tugas |
 |---|---|
 | `plans` | Paket yang dijual (sumber harga & masa aktif) |
-| `orders` | Pembelian: pembeli, WA, metode bayar, referensi, file bukti, admin pencatat |
+| `orders` | Pembelian otomatis (Midtrans) dan manual: pembeli, WA, email, status, metode bayar, referensi, file bukti, sumber iklan, admin pencatat |
+| `order_deliveries` | Riwayat pengiriman kode lewat email (tanpa isi kode) |
 | `access_codes` | Kode unik per pembeli (hash + 4 karakter terakhir), status, masa aktif |
 | `sessions` | Satu baris per perangkat guru yang sedang masuk |
 | `usage_logs` | Event penggunaan (tanpa isi soal) |
@@ -348,7 +376,10 @@ Melihat isi database: pgAdmin di http://localhost:5050 (server **SIAPAJAR (local
 - Permintaan admin dari situs lain ditolak (`SameSite=Strict` + `sameOrigin`).
 - Body dibatasi 100 KB (7 MB khusus unggah bukti transaksi).
 - Bukti transaksi diperiksa dari isi file, disimpan di folder privat (di `.gitignore`), hanya bisa dibuka admin yang masuk, dan wajib di-backup bersama database.
-- Jangan menulis kode akses, token, password, nomor WA, atau nama pembeli ke log.
+- Jangan menulis kode akses, token, password, nomor WA, email, atau nama pembeli ke log.
+- Pembayaran: notifikasi Midtrans wajib bertanda tangan sah **dan** statusnya selalu dicek ulang ke API Midtrans; browser tidak pernah menentukan lunas. Satu pesanan = satu kode (row lock + `order_id` unik + `provider_ref` unik).
+- Server key Midtrans dan token Meta hanya di server. Client key Midtrans dan Pixel ID memang publik.
+- Ke Meta: email/telepon hanya dalam bentuk hash SHA-256; IP & user agent dihapus dari pesanan setelah event `Purchase` terkirim atau checkout ditutup.
 
 ---
 
@@ -400,6 +431,13 @@ Lewat panel: **Paket & Harga** dan **Pengaturan** (super admin). Untuk mengembal
 | "Ganti password sementara Anda" terus muncul | Password sementara belum diganti | Isi form di Akun Saya |
 | `429` saat masuk | Lebih dari 5 percobaan per menit | Tunggu 1 menit (atau restart server saat development) |
 | Semua pengunjung terkena rate limit bersamaan (production) | `TRUST_PROXY` belum diisi | Set `TRUST_PROXY=1` |
+| Landing masih "Beli via WhatsApp" | Key Midtrans kosong | Isi `MIDTRANS_SERVER_KEY` dan `MIDTRANS_CLIENT_KEY`, restart server |
+| Checkout: "Harga paket belum diatur" | Harga paket 0 | Panel → Paket & Harga |
+| Checkout: "Pembayaran sedang tidak dapat diproses" | Key Midtrans salah, atau key sandbox dengan `MIDTRANS_IS_PRODUCTION=true` (atau sebaliknya) | Cocokkan key dan mode; lihat log server (`Midtrans HTTP 401`) |
+| Sudah bayar di sandbox tapi halaman tetap "Menunggu" | Midtrans belum mengonfirmasi | Halaman mengecek sendiri tiap beberapa detik; pastikan pembayaran di simulator Midtrans selesai |
+| Notifikasi Midtrans ditolak `403` | Server key di `.env` tidak sama dengan akun/mode yang mengirim | Samakan key |
+| Email tidak muncul di Mailpit | `SMTP_HOST` kosong atau Mailpit belum jalan | `docker compose up -d`, isi `SMTP_HOST=localhost`, `SMTP_PORT=1025` |
+| Event Meta tidak muncul di Test Events | `META_CAPI_TOKEN` / `META_TEST_EVENT_CODE` kosong atau salah | Cek log server (`Meta Conversions API ... failed`) |
 
 ---
 

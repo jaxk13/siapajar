@@ -3,6 +3,7 @@
 # Usage:
 #   cp .env.example .env        # then set POSTGRES_PASSWORD and PGADMIN_DEFAULT_PASSWORD
 #   docker compose up -d        # PostgreSQL (localhost:5432) + pgAdmin (http://localhost:5050)
+#                               # + Mailpit (SMTP localhost:1025, inbox http://localhost:8025)
 #   docker compose down         # stop (data is kept)
 #   docker compose down -v      # stop and DELETE local data (database and pgAdmin settings)
 
@@ -50,6 +51,21 @@ services:
     volumes:
       - pgadmin_data:/var/lib/pgadmin
       - ./pgadmin/servers.json:/pgadmin4/servers.json:ro
+
+  # Catches every email sent by the backend (access codes). Nothing reaches real inboxes.
+  # Backend .env: SMTP_HOST=localhost, SMTP_PORT=1025. Inbox: http://localhost:8025
+  mailpit:
+    image: axllent/mailpit:v1.31
+    container_name: siapajar-mailpit
+    restart: unless-stopped
+    environment:
+      MP_MAX_MESSAGES: 500
+      MP_SMTP_AUTH_ACCEPT_ANY: 1
+      MP_SMTP_AUTH_ALLOW_INSECURE: 1
+    ports:
+      # Bound to localhost only.
+      - "127.0.0.1:${MAILPIT_SMTP_PORT:-1025}:1025"
+      - "127.0.0.1:${MAILPIT_UI_PORT:-8025}:8025"
 
 volumes:
   postgres_data:

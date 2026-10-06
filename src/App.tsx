@@ -6,6 +6,8 @@ import AdminRoutes from "./pages/admin/AdminRoutes";
 import AppPage from "./pages/AppPage";
 import LandingPage from "./pages/LandingPage";
 import NotFoundPage from "./pages/NotFoundPage";
+import PaymentResultPage from "./pages/PaymentResultPage";
+import PrivacyPage from "./pages/PrivacyPage";
 
 export default function App() {
   return (
@@ -24,6 +26,14 @@ function Routes() {
 
   if (normalized === "/") {
     return <LandingPage />;
+  }
+
+  // Public purchase pages (ADR-017).
+  if (normalized === "/pembayaran/selesai") {
+    return <PaymentResultPage />;
+  }
+  if (normalized === "/kebijakan-privasi") {
+    return <PrivacyPage />;
   }
 
   // Admin panel: separate login and session (ADR-016); does not depend on teacher access.

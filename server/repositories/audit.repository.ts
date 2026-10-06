@@ -3,6 +3,8 @@ import type { Queryable } from "../db/pool";
 export type AuditAction =
   | "login"
   | "order.create"
+  | "order.paid"
+  | "order.email_resend"
   | "code.create_test"
   | "code.disable"
   | "code.regenerate"

@@ -16,16 +16,19 @@ export default function MarketingFooter() {
         <nav aria-label="Tautan footer">
           <ul className="flex flex-wrap gap-x-6 gap-y-2 text-sm">
             <li>
-              <a href="#cara-kerja" className="text-fg-muted hover:text-fg">Cara Kerja</a>
+              <a href="/#cara-kerja" className="text-fg-muted hover:text-fg">Cara Kerja</a>
             </li>
             <li>
-              <a href="#hasil-dokumen" className="text-fg-muted hover:text-fg">Hasil Dokumen</a>
+              <a href="/#hasil-dokumen" className="text-fg-muted hover:text-fg">Hasil Dokumen</a>
             </li>
             <li>
-              <a href="#harga" className="text-fg-muted hover:text-fg">Harga</a>
+              <a href="/#harga" className="text-fg-muted hover:text-fg">Harga</a>
             </li>
             <li>
               <Link to="/masuk" className="text-fg-muted hover:text-fg">Masuk</Link>
+            </li>
+            <li>
+              <Link to="/kebijakan-privasi" className="text-fg-muted hover:text-fg">Kebijakan Privasi</Link>
             </li>
           </ul>
         </nav>

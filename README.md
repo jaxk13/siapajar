@@ -50,17 +50,19 @@ Frontend (React) dan backend (Express) berada dalam **satu repository** dan dija
         └───────────┬───────────┘
                     ▼
                PostgreSQL          (lokal: Docker + pgAdmin)
+
+   Layanan luar:  Midtrans (pembayaran) · SMTP (email kode akses) · Meta Pixel + Conversions API (iklan)
 ```
 
 - **Development:** Express memasang Vite sebagai middleware, sehingga perubahan kode React langsung terlihat tanpa server frontend terpisah.
 - **Production:** frontend di-build ke `dist/`, lalu Express menyajikan file tersebut beserta API dari proses yang sama.
-- Target deployment: VPS Linux → Nginx (HTTPS) → PM2 → Node/Express → PostgreSQL.
+- Target deployment: VPS Linux → Caddy (HTTPS otomatis) → PM2 → Node/Express → PostgreSQL di VPS, backup harian terenkripsi ke Google Drive. Panduan langkah demi langkah: [`deploy/README.md`](deploy/README.md).
 
 Prinsip penting (lihat `docs/DECISIONS.md`):
 
 - **External AI First** — guru menyalin prompt ke AI pilihannya (ChatGPT, Gemini, Claude), lalu menempelkan hasilnya kembali. Backend tidak memanggil AI.
 - **Local First** — draf soal disimpan di browser (localStorage), bukan di database.
-- **Guru tanpa akun** — guru masuk dengan **kode akses** unik yang dibeli lewat WhatsApp; tidak ada registrasi.
+- **Guru tanpa akun** — guru masuk dengan **kode akses** unik; tidak ada registrasi. Kode dibeli lewat checkout Midtrans dan dikirim otomatis ke email (ADR-017), atau lewat WhatsApp admin sebagai cadangan.
 - **Tim admin punya akun sendiri** — panel `/super-admin` dengan login email + password, tanpa registrasi (ADR-016).
 
 ---
@@ -70,11 +72,12 @@ Prinsip penting (lihat `docs/DECISIONS.md`):
 | Bagian | Teknologi |
 |---|---|
 | Frontend | React 19, TypeScript, Vite 8, Tailwind CSS 4, lucide-react, router buatan sendiri |
-| Backend | Node.js, Express 4, dotenv, `pg` (tanpa ORM) |
+| Backend | Node.js, Express 4, dotenv, `pg` (tanpa ORM), `nodemailer` (email) |
+| Pembayaran & iklan | Midtrans Snap, Meta Pixel + Conversions API (lewat `fetch`, tanpa SDK) |
 | Database | PostgreSQL 17, migration SQL + seeder buatan sendiri |
-| Tooling lokal | Docker Compose (PostgreSQL + pgAdmin) |
+| Tooling lokal | Docker Compose (PostgreSQL + pgAdmin + Mailpit) |
 | Build | Vite (frontend), esbuild (server → `dist/server.cjs`) |
-| Deployment (target) | VPS Linux, Nginx, PM2, HTTPS |
+| Deployment (target) | VPS Linux, Caddy, PM2, PostgreSQL 17, backup `age` + `rclone` ke Google Drive ([`deploy/`](deploy/README.md)) |
 
 ---
 
@@ -91,18 +94,20 @@ siapajar/
 │   ├── components/ui/            komponen dasar (Button, Input, Dialog, ...)
 │   ├── components/layout/        header, footer, AppShell, AdminShell, drawer
 │   ├── components/*Step.tsx      layar langkah A–F (prototipe)
-│   ├── features/                 access, plans, admin, import (parser), export (Word)
+│   ├── features/                 access, plans, checkout, tracking, admin, import (parser), export (Word)
 │   └── types/
 ├── server/                     Backend Express           → panduan: server/README.md
 │   ├── index.ts, app.ts          start server & konfigurasi Express
 │   ├── config/env.ts             semua environment variable
 │   ├── routes/ controllers/ services/ repositories/ middleware/ lib/
 │   ├── db/                       koneksi, migrate.ts, seed.ts, migrations/*.sql, seeds/
-│   └── scripts/                  CLI: access-cli.ts (kode akses), user-cli.ts (akun admin)
+│   ├── emails/                   email HTML kode akses + gambar
+│   └── scripts/                  CLI: access-cli.ts (kode akses), user-cli.ts (akun admin), payment-cli.ts (dev)
+├── deploy/                     VPS: Caddyfile, PM2, deploy.sh, backup.sh  → panduan: deploy/README.md
 ├── docs/                       PRD, desain, arsitektur, database, ERD, API, ...
 ├── Logbook/                    laporan setiap perubahan (logbook-<nama>-<nomor>.md)
 ├── pgadmin/servers.json        server PostgreSQL yang didaftarkan otomatis di pgAdmin
-├── docker-compose.yml          PostgreSQL + pgAdmin untuk development lokal
+├── docker-compose.yml          PostgreSQL + pgAdmin + Mailpit untuk development lokal
 ├── .env.example                contoh environment variable
 └── index.html, vite.config.ts, tsconfig.json, package.json
 ```
@@ -145,7 +150,7 @@ siapajar/
 3. **Jalankan database, migration, dan seeder**
 
    ```bash
-   docker compose up -d     # PostgreSQL (localhost:5432) + pgAdmin (http://localhost:5050)
+   docker compose up -d     # PostgreSQL (localhost:5432) + pgAdmin (http://localhost:5050) + Mailpit (http://localhost:8025)
    npm run db:migrate       # membuat tabel
    npm run db:seed          # paket Instan & Pro, nomor WA admin, super admin dari SEED_ADMIN_*
    ```
@@ -168,8 +173,16 @@ siapajar/
    | http://localhost:3000/masuk | Guru masuk dengan kode akses |
    | http://localhost:3000/super-admin/masuk | Tim admin masuk |
    | http://localhost:5050 | pgAdmin |
+   | http://localhost:8025 | Mailpit: semua email dari aplikasi (kode akses) tertangkap di sini |
 
 6. **Coba sebagai guru**: di panel admin buka **Kode Akses → Buat kode uji** (atau `npm run access:create -- --plan pro --test`), lalu masukkan kodenya di `/masuk`.
+
+7. **Coba pembelian otomatis** (opsional):
+   - tanpa akun apa pun: `npm run payment:simulate -- --new --plan pro --email anda@contoh.id` → email kode akses muncul di Mailpit, pesanan muncul di panel admin;
+   - dengan Midtrans sandbox: isi `MIDTRANS_SERVER_KEY` / `MIDTRANS_CLIENT_KEY` (sandbox) di `.env`, beri harga paket di panel **Paket & Harga**, lalu klik **Beli Sekarang** di landing dan bayar lewat simulator Midtrans;
+   - Meta: isi `META_PIXEL_ID`, `META_CAPI_TOKEN`, `META_TEST_EVENT_CODE`, lalu lihat event di Events Manager → Test Events.
+
+   Panduan lengkap: [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) §15a-2.
 
 ### Menjalankan versi production di komputer sendiri
 
@@ -211,8 +224,13 @@ Disimpan di `.env` (tidak ikut ke git) dan dibaca di satu tempat: `server/config
 | `DATABASE_URL` | **Ya** | Koneksi PostgreSQL untuk server, migration, seeder, dan CLI |
 | `ACCESS_CODE_PEPPER` | **Ya** | Secret hash kode akses. **Jangan diubah** setelah kode dibagikan; semua kode lama akan tidak berlaku |
 | `PORT`, `HOST` | Tidak | Default `3000`, `0.0.0.0` |
-| `TRUST_PROXY` | Production | Isi `1` di belakang Nginx agar rate limit membaca IP asli |
+| `TRUST_PROXY` | Production | Isi `1` di belakang Caddy agar rate limit membaca IP asli |
 | `PAYMENT_PROOF_DIR` | Tidak | Folder bukti transaksi (default `storage/payment-proofs`); tidak pernah bisa diakses publik |
+| `APP_URL` | Production | Alamat publik untuk link di email dan redirect Midtrans (mis. `https://siapajar.id`) |
+| **Pembayaran, email, iklan** | | |
+| `MIDTRANS_IS_PRODUCTION`, `MIDTRANS_SERVER_KEY`, `MIDTRANS_CLIENT_KEY` | Tidak | Kosong = checkout nonaktif (landing tetap "Beli via WhatsApp"). Development: key sandbox |
+| `EMAIL_FROM`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS` | Tidak | Pengirim email kode akses. Development: Mailpit (`localhost`, `1025`) |
+| `META_PIXEL_ID`, `META_CAPI_TOKEN`, `META_TEST_EVENT_CODE`, `META_GRAPH_VERSION` | Tidak | Kosong = tanpa pelacakan iklan. Kosongkan test event code di production |
 | **Seeder** | | |
 | `ADMIN_WHATSAPP` | Tidak | Nilai awal nomor WA admin (mis. `081234567890`). Setelah itu diubah dari panel **Pengaturan** |
 | `SEED_ADMIN_NAME`, `SEED_ADMIN_EMAIL` | Tidak | Super admin pertama yang dibuat seeder |
@@ -222,6 +240,7 @@ Disimpan di `.env` (tidak ikut ke git) dan dibaca di satu tempat: `server/config
 | `POSTGRES_PASSWORD` | **Ya** | Password database lokal |
 | `PGADMIN_DEFAULT_EMAIL`, `PGADMIN_PORT` | Tidak | Default `admin@siapajar.dev`, `5050` |
 | `PGADMIN_DEFAULT_PASSWORD` | **Ya** | Password login pgAdmin |
+| `MAILPIT_SMTP_PORT`, `MAILPIT_UI_PORT` | Tidak | Default `1025`, `8025` |
 
 Jangan pernah commit `.env`, API key, atau password.
 
@@ -258,12 +277,14 @@ Router kecil berbasis History API: setiap halaman punya URL sendiri, tombol Back
 |---|---|---|---|
 | `/` | Landing page: cara kerja, hasil dokumen, **harga** (`#harga`), cara mendapatkan kode (`#kode-akses`), kontak WA | Publik | ✅ |
 | `/masuk` | Masuk dengan kode akses | Publik | ✅ |
+| `/pembayaran/selesai` | Status pembayaran Midtrans, kode dikirim ke email | Publik | ✅ |
+| `/kebijakan-privasi` | Kebijakan privasi pembeli | Publik | ✅ |
 | `/app` | Beranda aplikasi guru | Sesi guru | ✅ |
 | `/app/parameter`, `/jalankan-ai`, `/impor`, `/editor`, `/kop`, `/export` | Langkah penyusunan naskah (layar prototipe) | Sesi guru | ✅ (dirapikan di Phase 2–8) |
 | `/app/prompt`, `/app/kisi-kisi`, `/app/kunci-jawaban` | Prompt builder terpisah, kisi-kisi, kunci jawaban | Sesi guru | 💡 |
 | `/super-admin/masuk` | Login tim admin (tanpa registrasi) | Publik | ✅ |
 | `/super-admin` | Ringkasan | Tim admin | ✅ |
-| `/super-admin/pesanan`, `/pesanan/baru`, `/pesanan/:id` | Pesanan: daftar, buat (+ bukti transfer → kode → kirim WA), detail | Tim admin | ✅ |
+| `/super-admin/pesanan`, `/pesanan/baru`, `/pesanan/:id` | Pesanan otomatis & manual: daftar + filter status, buat (+ bukti transfer → kode → kirim WA), detail (sumber iklan, riwayat email, kirim ulang, ingatkan via WA) | Tim admin | ✅ |
 | `/super-admin/kode` | Kode akses: ganti, nonaktifkan, kode uji | Tim admin | ✅ |
 | `/super-admin/paket`, `/tim`, `/pengaturan`, `/aktivitas` | Paket & harga, tim admin, nomor WA, riwayat | Super admin | ✅ |
 | `/super-admin/akun` | Profil & ganti password | Tim admin | ✅ |
@@ -285,7 +306,9 @@ Semua di bawah `/api`. Kontrak resmi: [`docs/API.md`](docs/API.md). Detail middl
 | | `/api/super-admin/overview`, `/orders*`, `/codes*` | Tim admin | ✅ |
 | | `/api/super-admin/codes/test`, `/plans/:id`, `/settings`, `/users*`, `/activity` | Super admin | ✅ |
 | Penggunaan | `POST /api/usage/event` | Sesi guru | 🟡 Phase 9 |
-| Pembayaran otomatis | `POST /api/payment/webhook` (Skaler) | Provider | ⛔ ditunda (PRD FR-P06) |
+| Pembayaran otomatis | `GET /api/checkout/config`, `POST /api/checkout`, `GET /api/checkout/:orderId` | Publik (rate limit) | ✅ |
+| | `POST /api/payment/webhook` (notifikasi Midtrans, bertanda tangan) | Midtrans | ✅ |
+| | `POST /api/super-admin/orders/:id/send-email` | Tim admin | ✅ |
 | AI langsung | `POST /api/ai/generate` | Sesi guru | ⛔ bukan MVP (PRD FR-C03) |
 
 ---
@@ -335,7 +358,8 @@ Diagram: salin isi [`docs/ERD.dbml`](docs/ERD.dbml) ke https://dbdiagram.io/d. P
 
 ```
 plans ──< orders ──── access_codes ──< sessions
-  │                      │   ▲           │
+  │         │            │   ▲           │
+  │         └──< order_deliveries        │   (riwayat email kode)
   └──────────────────────┘   │           │
                          usage_logs ─────┘
 users ──< user_sessions, audit_logs        (tim admin)
@@ -345,7 +369,8 @@ system_settings                            (key/value)
 | Tabel | Fungsi |
 |---|---|
 | `plans` | Paket yang dijual: harga, masa aktif, batas perangkat, tampil/tidak di landing |
-| `orders` | Pembelian: nama & WA pembeli, metode bayar, referensi, file bukti, admin pencatat |
+| `orders` | Pembelian otomatis (Midtrans) & manual: nama, WA, email pembeli, status, metode bayar, referensi, file bukti, sumber iklan, admin pencatat |
+| `order_deliveries` | Riwayat pengiriman kode lewat email (tanpa isi kode) |
 | `access_codes` | Kode unik per pembeli (hash + 4 karakter terakhir); `unused → active → expired` atau `disabled` |
 | `sessions` | Sesi guru per perangkat (maks. 2 per kode) |
 | `usage_logs` | Event penggunaan, tanpa isi soal |
@@ -354,7 +379,7 @@ system_settings                            (key/value)
 | `user_sessions` | Sesi login admin |
 | `audit_logs` | Riwayat aktivitas admin |
 
-Setiap perubahan skema wajib lewat migration baru (`server/db/migrations/003_…sql`) dan ERD ikut diperbarui.
+Setiap perubahan skema wajib lewat migration baru (`server/db/migrations/004_…sql`) dan ERD ikut diperbarui.
 
 ---
 
@@ -362,7 +387,7 @@ Setiap perubahan skema wajib lewat migration baru (`server/db/migrations/003_…
 
 ### Untuk guru
 
-0. **Beli kode akses**: pilih paket di section **Harga** → **Beli via WhatsApp** → bayar (transfer bank atau QRIS). Admin mengirim kode akses lewat WhatsApp.
+0. **Beli kode akses**: pilih paket di section **Harga** → **Beli Sekarang** → isi nama, email, WhatsApp → bayar di popup Midtrans (QRIS, virtual account, e-wallet). Kode akses langsung dikirim ke email. (Jika pembayaran otomatis belum aktif: **Beli via WhatsApp**, admin mengirim kode lewat WhatsApp.)
 1. **Masuk** di `/masuk` dengan kode akses. Satu kode bisa dipakai di 2 perangkat; masa aktif dihitung sejak pertama dipakai.
 2. **Parameter & Prompt** (`/app/parameter`): jenjang, kelas, mapel, materi, jumlah soal, kesulitan.
 3. **Jalankan AI** (`/app/jalankan-ai`): salin prompt, tempel di ChatGPT/Gemini/Claude, salin hasilnya.
@@ -376,10 +401,14 @@ Semua data kerja tersimpan otomatis di browser.
 ### Untuk tim admin (`/super-admin`)
 
 1. Masuk di `/super-admin/masuk`. Akun baru: ganti password sementara.
-2. **Buat Pesanan** setelah pembayaran diverifikasi: nama, nomor WA, metode bayar, unggah bukti (foto/PDF) → kode dibuat → **Kirim via WhatsApp**.
-3. Pembeli kehilangan kode → buka pesanannya → **Ganti kode** (masa aktif tetap).
-4. Kode dibagikan / pembayaran batal → **Nonaktifkan** dengan alasan.
-5. Super admin: **Paket & Harga**, **Tim Admin**, **Pengaturan** (nomor WA), **Aktivitas**.
+2. **Pembelian otomatis** masuk sendiri ke **Pesanan**: kode dibuat dan dikirim ke email tanpa tindakan admin. Perhatikan:
+   - status **Lunas, kode belum terkirim** (juga diperingatkan di Ringkasan) → buka pesanan → **Kirim ulang via email** (email bisa diperbaiki);
+   - filter **Menunggu bayar** → buka pesanan → **Ingatkan via WhatsApp**.
+   Analisis iklan (pengunjung, biaya, ROAS) ada di Meta Ads Manager; panel menampilkan sumber/kampanye setiap pesanan.
+3. **Buat Pesanan** manual untuk pembeli yang membayar langsung ke admin: nama, nomor WA, metode bayar, unggah bukti (foto/PDF) → kode dibuat → **Kirim via WhatsApp**.
+4. Pembeli kehilangan kode → buka pesanannya → **Kirim ulang via email** atau **Ganti kode** (masa aktif tetap).
+5. Kode dibagikan / pembayaran batal / refund → **Nonaktifkan** dengan alasan.
+6. Super admin: **Paket & Harga**, **Tim Admin**, **Pengaturan** (nomor WA), **Aktivitas**.
 
 ---
 
@@ -394,6 +423,7 @@ Rincian: [`docs/TASKS.md`](docs/TASKS.md). Setiap perubahan dicatat di [`Logbook
 | 1 | Kode akses dan sesi guru | ✅ |
 | 10 | Harga di landing page, pembelian manual via WhatsApp | ✅ (harga final belum diisi) |
 | 10A | Panel admin `/super-admin` | ✅ |
+| 10B | Pembayaran otomatis Midtrans, email kode akses, Meta Pixel + Conversions API | ✅ kode (akun Midtrans/Meta & SMTP production belum diisi) |
 | 2 | Parameter asesmen | 🟡 |
 | 3 | Prompt builder | 🟡 |
 | 4 | Alur AI eksternal | 🟡 |
@@ -415,6 +445,7 @@ Cara kerja: **PLAN → APPROVAL → IMPLEMENT → VERIFY** (lihat `AGENTS.md`).
 - Kode akses disimpan sebagai hash; token sesi hanya ada di cookie HttpOnly.
 - Akun tim admin: password minimal 10 karakter (huruf + angka), password sementara wajib diganti, akun yang tidak dipakai dinonaktifkan dari **Tim Admin**.
 - Folder `storage/` (bukti transaksi) berisi data pribadi: tidak di-commit dan wajib di-backup bersama database.
+- Pembayaran hanya dianggap lunas jika notifikasi Midtrans bertanda tangan sah **dan** dikonfirmasi API Midtrans. Server key Midtrans dan token Meta hanya di server.
 
 Detail aturan keamanan backend: [`server/README.md`](server/README.md) §9.
 

@@ -7,7 +7,7 @@ import FormField from "../../components/ui/FormField";
 import Input from "../../components/ui/Input";
 import Select from "../../components/ui/Select";
 import Textarea from "../../components/ui/Textarea";
-import { adminApi, type IssuedCode, type PaymentMethod } from "../../features/admin/adminApi";
+import { adminApi, type IssuedCode, type ManualPaymentMethod } from "../../features/admin/adminApi";
 import { useAdmin, useAdminQuery } from "../../features/admin/AdminProvider";
 import { ErrorBlock, IssuedCodePanel, LoadingBlock, Panel } from "../../features/admin/components";
 import { formatRupiah, readFileAsBase64 } from "../../features/admin/format";
@@ -26,7 +26,7 @@ export default function OrderCreatePage() {
   const [planId, setPlanId] = useState("");
   const [buyerName, setBuyerName] = useState("");
   const [buyerWhatsapp, setBuyerWhatsapp] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("bank_transfer");
+  const [paymentMethod, setPaymentMethod] = useState<ManualPaymentMethod>("bank_transfer");
   const [paymentReference, setPaymentReference] = useState("");
   const [note, setNote] = useState("");
   const [proof, setProof] = useState<File | null>(null);

@@ -64,3 +64,5 @@ Pemeriksaan yang BENAR-BENAR dijalankan dan hasilnya.
 | 012 | [logbook-pgadmin-docker-012.md](logbook-pgadmin-docker-012.md) | 2026-10-01 | pgAdmin di Docker Compose |
 | 013 | [logbook-seeder-admin-users-013.md](logbook-seeder-admin-users-013.md) | 2026-10-01 | Seeder akun admin (tabel `users`) |
 | 014 | [logbook-pembaruan-readme-014.md](logbook-pembaruan-readme-014.md) | 2026-10-01 | Pembaruan menyeluruh README umum, frontend, backend |
+| 015 | [logbook-pembayaran-otomatis-email-meta-015.md](logbook-pembayaran-otomatis-email-meta-015.md) | 2026-10-04 | Pembayaran otomatis Midtrans, email kode akses bergambar, Meta Pixel + Conversions API, panel admin |
+| 016 | [logbook-panduan-deploy-vps-016.md](logbook-panduan-deploy-vps-016.md) | 2026-10-06 | Panduan deploy VPS (Caddy, PM2, PostgreSQL) dan backup harian terenkripsi ke Google Drive |
